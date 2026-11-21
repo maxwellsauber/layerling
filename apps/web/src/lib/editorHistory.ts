@@ -1,3 +1,4 @@
+import type { ProjectVariable } from "@/lib/projectVariables";
 import type { WorkplaneNote, WorkplaneShape } from "@/types/layerling";
 import { canonicalizeShape } from "@/lib/workplaneShapes";
 import { normalizeNotes, notesSignature } from "@/lib/workplaneNotes";
@@ -12,6 +13,7 @@ export const MAX_EDITOR_HISTORY_ENTRIES = 5000;
 export type EditorHistoryExportLimit = "unlimited" | number;
 
 export type EditorHistoryEntry = {
+  variables?: ProjectVariable[];
   shapes: WorkplaneShape[];
   selectedIds: string[];
   /**
@@ -316,6 +318,7 @@ export function editorHistoryEntry(
   notes: WorkplaneNote[] = [],
   workplane?: PlacementWorkplane,
   at?: number,
+  variables: ProjectVariable[] = [],
 ): EditorHistoryEntry {
   const canonicalShapes = shapes.map(canonicalizeShape);
   const validSelection = selectedIds.filter((id, index) => selectedIds.indexOf(id) === index && canonicalShapes.some((shape) => shape.id === id));
@@ -326,11 +329,13 @@ export function editorHistoryEntry(
   // zwei Staende, die sich nur in einer Notiz unterscheiden, fuer denselben und
   // legt sie zusammen - die Notiz waere dann beim naechsten Oeffnen weg.
   const noteText = notesSignature(canonicalNotes);
+  const variableText=variables.length?JSON.stringify(variables):"";
   const entry: EditorHistoryEntry = {
+    ...(variables.length?{variables}:{}),
     shapes: canonicalShapes,
     selectedIds: validSelection,
-    fingerprint: sceneFingerprint(signature.fingerprint, canonicalNotes, normalizedWorkplane),
-    estimatedBytes: signature.estimatedBytes + noteText.length * 2 + (normalizedWorkplane ? 96 : 0),
+    fingerprint: sceneFingerprint(signature.fingerprint, canonicalNotes, normalizedWorkplane)+(variableText?":"+variableText:""),
+    estimatedBytes: signature.estimatedBytes + variableText.length * 2 + noteText.length * 2 + (normalizedWorkplane ? 96 : 0),
   };
   if (canonicalNotes.length > 0) entry.notes = canonicalNotes;
   if (normalizedWorkplane && !placementWorkplaneIsBase(normalizedWorkplane)) {
@@ -548,6 +553,7 @@ export function hydrateEditorHistoryState(
         normalizeNotes(entry?.notes),
         entry?.placementWorkplane ?? currentWorkplane,
         typeof entry?.at === "number" && Number.isFinite(entry.at) ? entry.at : undefined,
+        entry?.variables??[],
       );
       if (cacheable) {
         hydratedEntryCache.set(entry, {
@@ -569,9 +575,7 @@ export function hydrateEditorHistoryState(
     // the entry itself was recorded on; comparing it to the base plate threw away the whole history of any
     // design whose last step was made on a face workplane (#390).
     const stored = normalized[index];
-    const expected = currentWorkplane === undefined && stored?.placementWorkplane
-      ? editorHistoryEntry(currentShapes, [], currentNotes, stored.placementWorkplane)
-      : fallback;
+    const expected = editorHistoryEntry(currentShapes, [], currentNotes, currentWorkplane ?? stored?.placementWorkplane, undefined, stored?.variables??[]);
     if (stored?.fingerprint !== expected.fingerprint) {
       return { entries: [fallback], index: 0 };
     }

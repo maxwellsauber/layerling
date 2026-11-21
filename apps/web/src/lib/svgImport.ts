@@ -415,7 +415,7 @@ function pathPointsByLength(path: THREE.Path, longestPiece: number) {
   return points;
 }
 
-function composeNestedRings(shapes: THREE.Shape[]) {
+export function composeNestedRings(shapes: THREE.Shape[]) {
   const rings: SvgRing[] = [];
   // The size of the drawing, from a rough reading of its outlines.
   let extentOfDrawing = 0;

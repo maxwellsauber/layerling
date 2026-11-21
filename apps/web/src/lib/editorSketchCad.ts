@@ -1,3 +1,5 @@
+import {regenerateSketchTexts} from "@/lib/sketchText";
+import {sketchRaisedTextPlan} from "@/lib/sketchRaisedText";
 
 import { t } from "@/lib/i18n";
 import { isBuildMessage, reportWorkerBuild } from "@/lib/buildStamp";
@@ -118,6 +120,8 @@ export async function remeshCadBrep(brep: string, deflection: CadModifierDeflect
 }
 
 export async function cadShapeFromSketchProfile(profile: SketchProfile, height: number, existing?: WorkplaneShape | null) {
+  const hasRaised=profile.texts?.some(text=>text.connections?.mode==='backer'&&text.raised);
+  if(hasRaised){await getManifoldRuntime();profile=regenerateSketchTexts(profile);}
   const safeHeight = Math.max(MIN_SHAPE_DIMENSION, height);
   // A silhouette leaves its holes out first, so its outer line runs round the outside only (#197).
   const buildProfile = profile.silhouette ? silhouetteSketchProfile(profile) : profile;
@@ -133,10 +137,26 @@ export async function cadShapeFromSketchProfile(profile: SketchProfile, height: 
   // worked out here, as the polygon stroke with its outer rings only, and built as an area.
   const pocketsFilled = profile.stroke?.align === "grow" && profile.silhouette && !profile.inset ? filledGrowPockets(await getManifoldRuntime(), buildProfile) : null;
   // A face tool body given a stroke: the stroke runs along the outline set in, built as straight lines.
-  const strokedInset = profile.stroke && profile.inset ? insetSketchProfile(await getManifoldRuntime(), buildProfile, profile.inset) : null;
+  const letterSegmentIds = new Set(buildProfile.texts?.flatMap(text=>text.segmentIds));
+  const insetSource = letterSegmentIds.size ? {...buildProfile,segments:buildProfile.segments.filter(segment=>!letterSegmentIds.has(segment.id))} : buildProfile;
+  const strokedInset = profile.stroke && profile.inset ? insetSketchProfile(await getManifoldRuntime(), insetSource, profile.inset) : null;
   if (profile.stroke && profile.inset && !strokedInset) throw new Error(t("faceTool.empty"));
-  if (withKeyring) {
+  if(hasRaised){
+    const plan=sketchRaisedTextPlan(buildProfile);
+    let ordinary=plan.profile;
+    if(profile.stroke)ordinary=strokedSketchProfile(await getManifoldRuntime(),ordinary)??{points:[],segments:[]};
+    response=await requestSketchCad({type:"build",profile:cloneSketchProfile(ordinary),height:safeHeight,textStacks:plan.stacks});
+  } else if (withKeyring) {
     response = await buildOnWorker(withKeyring);
+  } else if (profile.stroke && buildProfile.texts?.length) {
+    // The exact whole-profile stroke would stroke the glyphs again. The mixed build
+    // strokes only sketch paths and unions the existing text regions unchanged.
+    const stroked = strokedSketchProfile(await getManifoldRuntime(), strokedInset ? {...strokedInset,
+      points:[...strokedInset.points,...buildProfile.points.filter(point=>buildProfile.texts?.some(text=>text.pointIds.includes(point.id)))],
+      segments:[...strokedInset.segments,...buildProfile.segments.filter(segment=>letterSegmentIds.has(segment.id))],
+      texts:buildProfile.texts,stroke:profile.stroke} : buildProfile);
+    if (!stroked) throw new Error(t("sketch.strokeEmpty"));
+    response = await buildOnWorker(stroked);
   } else if (pocketsFilled) {
     response = await buildOnWorker(pocketsFilled);
   } else if (strokedInset && profile.stroke) {

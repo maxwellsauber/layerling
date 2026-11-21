@@ -1,0 +1,145 @@
+[
+  {
+    "id": "control-panel",
+    "category": "real-world",
+    "featured": true,
+    "title": "Control panel workshop: make it fit your next project",
+    "description": "A 3 mm faceplate with a centered display opening, independently sized button and mounting holes, mirrored shoulders, and a sliding cable slot. A separate bezel and button trim ring complete the workshop. Numbered notes inside the design explain each edit.",
+    "features": [
+      "Dimensions + midpoint",
+      "Linked Mirror",
+      "Point-on-Line",
+      "Parallel / perpendicular / equal sides",
+      "Concentric ring",
+      "Associative bezel"
+    ],
+    "tryThis": "Open the panel sketch and follow the numbered notes. Widen the display from 48 to 56 mm, reshape either shoulder, then slide the cable slot. Edit the separate bezel and trim ring in their own sketches; they are not linked across bodies.",
+    "project": "control-panel.lyl",
+    "thumbnail": "control-panel.jpg"
+  },
+  {
+    "id": "mounting-plate",
+    "title": "Mounting plate: resize without remeasuring",
+    "description": "An 80 × 50 mm plate with two 6 mm mounting holes. The holes stay 50 mm apart, centered left-to-right, while the plate width changes.",
+    "features": [
+      "Fixed dimensions",
+      "Midpoint centerline",
+      "Circle positioning"
+    ],
+    "tryThis": "Double-click the plate. Select the 80 mm bottom-edge badge and change it to 110 mm. Both holes remain centered as the plate grows.",
+    "project": "mounting-plate.lyl",
+    "thumbnail": "mounting-plate.jpg",
+    "category": "real-world"
+  },
+  {
+    "id": "spacer-ring",
+    "title": "Spacer ring: change the fit, keep the wall",
+    "description": "A 40 mm opening surrounded by a 3 mm radial wall. Adapt a bezel or spacer to a different opening without calculating two diameters.",
+    "features": [
+      "Diameter",
+      "Concentric circles",
+      "Radial wall thickness"
+    ],
+    "tryThis": "Double-click the ring. Change the inner diameter from 40 to 48 mm: the outside grows to 54 mm. Then try a 4 mm radial gap.",
+    "project": "spacer-ring.lyl",
+    "thumbnail": "spacer-ring.jpg",
+    "category": "real-world"
+  },
+  {
+    "id": "label-border",
+    "title": "Custom label: a border that follows your outline",
+    "description": "A clipped-corner label outline with a 3 mm rounded border. Reshape the label and the outer rim follows automatically.",
+    "features": [
+      "Connected outline",
+      "Associative offset",
+      "Rounded corners"
+    ],
+    "tryThis": "Double-click the border. Drag the rightmost source corner, then open the offset badge and change its distance from 3 to 5 mm.",
+    "project": "label-border.lyl",
+    "thumbnail": "label-border.jpg",
+    "category": "real-world"
+  },
+  {
+    "id": "symmetric-hanger",
+    "category": "real-world",
+    "title": "Picture-hanger plate: reshape one side, match both",
+    "description": "A symmetric outline for a picture-hanger mounting plate, with two 5 mm holes on its centerline. Adjust the shoulders or tapered top without rebuilding the other side.",
+    "features": [
+      "Linked Mirror",
+      "Symmetric outline",
+      "Centered mounting holes"
+    ],
+    "tryThis": "Double-click the plate. Drag a right-hand corner outward: the matching left corner follows. Try dragging the left side too. Delete the Symmetry relationship to edit the sides independently.",
+    "project": "symmetric-hanger.lyl",
+    "thumbnail": "symmetric-hanger.jpg"
+  },
+  {
+    "id": "dimensioned-profile",
+    "title": "A plate that keeps its dimensions",
+    "description": "Resize a connected rectangular plate while keeping its sides horizontal and vertical.",
+    "features": [
+      "Connected profile",
+      "Length",
+      "Horizontal / vertical"
+    ],
+    "tryThis": "Edit the 80 mm width constraint, then move a corner.",
+    "project": "dimensioned-profile.lyl",
+    "thumbnail": "dimensioned-profile.jpg",
+    "category": "functional"
+  },
+  {
+    "id": "concentric-circles",
+    "title": "An adjustable ring",
+    "description": "Keep two circles centered together with a controlled radial gap.",
+    "features": [
+      "Circle diameter",
+      "Concentric",
+      "Radial spacing"
+    ],
+    "tryThis": "Change the 6 mm radial gap or the 30 mm inner diameter.",
+    "project": "concentric-circles.lyl",
+    "thumbnail": "concentric-circles.jpg",
+    "category": "functional"
+  },
+  {
+    "id": "midpoint-and-rail",
+    "title": "A centered tab and sliding guide",
+    "description": "One tab stays at the rail midpoint; another attachment can slide along it.",
+    "features": [
+      "Midpoint",
+      "Point-on-Line"
+    ],
+    "tryThis": "Move either rail endpoint, then drag the sliding attachment along the rail.",
+    "project": "midpoint-and-rail.lyl",
+    "thumbnail": "midpoint-and-rail.jpg",
+    "category": "functional"
+  },
+  {
+    "id": "linked-mirror",
+    "title": "Matching sides that move together",
+    "description": "Two line segments share a persistent reflection relationship around a construction axis.",
+    "features": [
+      "Linked Mirror",
+      "Symmetry",
+      "Editable axis"
+    ],
+    "tryThis": "Move an endpoint on either side, or rotate the construction axis.",
+    "project": "linked-mirror.lyl",
+    "thumbnail": "linked-mirror.jpg",
+    "category": "functional"
+  },
+  {
+    "id": "outline-offset",
+    "title": "A rim that follows its outline",
+    "description": "An outer border follows edits to its connected source profile.",
+    "features": [
+      "Associative offset",
+      "Inset",
+      "Corner styles"
+    ],
+    "tryThis": "Move a source corner, then change the offset distance or corner style.",
+    "project": "outline-offset.lyl",
+    "thumbnail": "outline-offset.jpg",
+    "category": "functional"
+  }
+]

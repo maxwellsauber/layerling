@@ -17,9 +17,13 @@ import "./sketchLock.css";
 import "./dashboardSelect.css";
 import "./focusMode.css";
 import "./fileBackups.css";
+import "./slimeTheme.css";
+import "./timeMachineTheme.css";
+import "./loftSvg.css";
+import "./featureGallery.css";
+import "./projectVariables.css";
 import { DiagnoseStrip } from "@/components/DiagnoseStrip";
 import { HtmlSettingsRestore } from "@/components/HtmlSettingsRestore";
-import { NewVersionNotice } from "@/components/NewVersionNotice";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
 import { DOM_MUTATION_GUARD_SCRIPT } from "@/lib/domMutationGuard";
 import { EDITOR_PROFILE_ELEMENT_ID, parseEditorProfile } from "@/lib/editorProfile";
@@ -137,7 +141,6 @@ export default function RootLayout({
         {children}
         <ServiceWorkerRegistration />
         <DiagnoseStrip />
-        <NewVersionNotice />
       </body>
     </html>
   );

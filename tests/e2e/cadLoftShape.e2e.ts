@@ -5,9 +5,9 @@ import * as THREE from "three";
 import { OcctKernel, type ShapeHandle } from "occt-wasm";
 import type { WorkplaneShape } from "@/types/layerling";
 import { cadModifierProfileForShape, cadProfileExpectation, closedMeshVolume } from "@/lib/cadProfileExtrusion";
-import { cadProfileSolidMismatch, profileExtrusionSolid } from "@/lib/cadProfileSolid";
+import { validateCadProfile, cadProfileSolidMismatch, profileExtrusionSolid } from "@/lib/cadProfileSolid";
 import type { CadModifierProfilePart } from "@/lib/cadModifierTypes";
-import { createLoftGeometry, loftFrameSize, loftStoredMeasures } from "@/lib/loftGeometry";
+import { createLoftGeometry, loftProfileLoops, loftFrameSize, loftStoredMeasures } from "@/lib/loftGeometry";
 
 /*
  * The transition (#188) as an exact body against the real kernel: a valid solid in the place
@@ -54,6 +54,7 @@ describe("exact bodies for the transition with the real OCCT kernel", () => {
 
   function exact(source: WorkplaneShape) {
     const part = cadModifierProfileForShape(source);
+    if(!part) validateCadProfile({kind:"loft",...loftProfileLoops(source),height:source.height});
     expect(part).not.toBeNull();
     const mesh = worldMesh(source);
     const profile = { ...(part as CadModifierProfilePart), expected: cadProfileExpectation(mesh.vertices, mesh.faces) };
@@ -68,6 +69,25 @@ describe("exact bodies for the transition with the real OCCT kernel", () => {
   const edgesAtHeight = (solid: ShapeHandle, y: number) => cad.getSubShapes(solid, "edge").filter((edge) => {
     const box = cad.getBoundingBox(edge);
     return Math.abs(box.ymin - y) < 1e-6 && Math.abs(box.ymax - y) < 1e-6;
+  });
+
+  it("SVG concave outlines make valid exact solids, including a hollow wall", () => {
+    const svg = {name:"L.svg",points:[{x:-.5,z:-.5},{x:.5,z:-.5},{x:.5,z:-1/6},{x:0,z:-1/6},{x:0,z:.5},{x:-.5,z:.5}]};
+    for (const wall of [0,1]) {
+      const {solid} = exact(loft({loftBottomOutline:"svg",loftTopOutline:"svg",loftBottomSvg:svg,loftTopSvg:svg,loftBottomWidth:40,loftTopWidth:40,loftBottomDepth:30,loftTopDepth:30,loftWall:wall}));
+      expect(cad.getVolume(solid)).toBeGreaterThan(0);
+    }
+  });
+
+  it("hollow SVG lofts keep valid middle sections when a short inset edge disappears", () => {
+    const svg={name:"tiny-corner.svg",points:[{x:-.5,z:-.5},{x:.499975,z:-.5},{x:.5,z:-.4999667},{x:.5,z:.5},{x:-.5,z:.5}]};
+    exact(loft({loftBottomOutline:"svg",loftBottomSvg:svg,loftTopOutline:"svg",loftTopSvg:svg,loftWall:2,
+      loftSections:[{at:.25,outline:"svg",svg,width:36,depth:36},{at:.5,outline:"svg",svg,width:32,depth:32},{at:.75,outline:"svg",svg,width:28,depth:28}]}));
+  });
+
+  it("SVG to circle with twist stays valid in the exact kernel", () => {
+    const svg = {name:"hex.svg",points:[{x:.5,z:0},{x:.25,z:.5},{x:-.25,z:.5},{x:-.5,z:0},{x:-.25,z:-.5},{x:.25,z:-.5}]};
+    exact(loft({loftBottomOutline:"svg",loftBottomSvg:svg,loftTwist:15}));
   });
 
   it("square to circle: a valid solid where the display mesh is, as big as the mesh says", () => {

@@ -64,6 +64,7 @@ function overlayPoint(area: VisibleWorkArea, x: number, y: number): CSSPropertie
 }
 
 export function TransformOverlay({
+  dimensionExpression,
   box,
   measureKey,
   editingDimension,
@@ -228,6 +229,7 @@ export function TransformOverlay({
         <button
           key={`${mark.key}-label`}
           className={armed === mark.key ? "dimension-label armed" : "dimension-label"}
+          title={dimensionExpression?.(mark.axis)?mark.label:undefined}
           data-axis={sizeDimensionAxis(mark.axis)}
           type="button"
           style={overlayPoint(keepVisible, mark.labelX, mark.labelY)}
@@ -235,7 +237,7 @@ export function TransformOverlay({
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => { if (accept(mark.key)) onBeginDimensionEdit(mark); }}
         >
-          {mark.label}
+          {dimensionExpression?.(mark.axis) ? `ƒ ${dimensionExpression(mark.axis)}` : mark.label}
         </button>
       ))}
       {editingDimension ? (

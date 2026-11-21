@@ -1,3 +1,4 @@
+import { composeTextMatrix } from "@/lib/sketchText";
 import type { SketchProfile } from "@/types/layerling";
 
 type Vec2 = { x: number; z: number };
@@ -53,8 +54,14 @@ export function turnedSketchProfile(profile: SketchProfile, turn: SketchEditTurn
   const move = direction === "toPlate" ? (point: Vec2) => toPlate(turn, point) : (point: Vec2) => toBody(turn, point);
   const degrees = (direction === "toPlate" ? 1 : -1) * turnDegrees(turn);
   const moved = <T extends Vec2>(item: T): T => ({ ...item, ...move(item) });
+  const origin = move({x:0,z:0}), px=move({x:1,z:0}), pz=move({x:0,z:1});
+  const transform: [number,number,number,number,number,number] = [px.x-origin.x,px.z-origin.z,pz.x-origin.x,pz.z-origin.z,origin.x,origin.z];
+  const inverseMove = direction === "toPlate" ? (p:Vec2)=>toBody(turn,p) : (p:Vec2)=>toPlate(turn,p);
+  const io=inverseMove({x:0,z:0}), ix=inverseMove({x:1,z:0}), iz=inverseMove({x:0,z:1});
+  const inverse: typeof transform = [ix.x-io.x,ix.z-io.z,iz.x-io.x,iz.z-io.z,io.x,io.z];
   return {
     ...profile,
+    ...(profile.texts ? { texts: profile.texts.map(text => ({...text,matrix:composeTextMatrix(transform,text.pathSegmentIds?.length ? composeTextMatrix(text.matrix,inverse) : text.matrix)})) } : {}),
     ...(profile.constraints ? { constraints: profile.constraints.map((rule) => {
       if ("c" in rule || "outline" in rule || (rule.kind === "concentric" || rule.kind === "symmetry")) return { ...rule };
       if (!rule.frameX && direction === "toBody") return { ...rule, frameX: toBodyVector(turn, { x: 1, z: 0 }) };

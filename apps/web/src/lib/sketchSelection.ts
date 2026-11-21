@@ -86,7 +86,10 @@ export function sketchSelectionMovePointIds(profile: Pick<SketchProfile, "segmen
  * What dragging a line moves: the whole selection when the line is part of a
  * larger one (it is then the handle for all of it), otherwise its own two ends.
  */
-export function sketchSegmentDragPointIds(profile: Pick<SketchProfile, "segments">, selected: SketchSelection, segmentId: string): string[] {
+export function sketchSegmentDragPointIds(profile: Pick<SketchProfile, "segments" | "texts">, selected: SketchSelection, segmentId: string): string[] {
+  const text = profile.texts?.find(text => text.segmentIds.includes(segmentId));
+  if (text && !(selected?.kind === "multiple" && selected.segmentIds.includes(segmentId))) return [...text.pointIds];
+
   if (selected?.kind === "multiple" && selected.segmentIds.includes(segmentId)) {
     return sketchSelectionMovePointIds(profile, selected);
   }
@@ -109,4 +112,29 @@ export function clampNudge(points: Array<{ x: number; z: number }>, dx: number, 
     nextZ = Math.min(Math.max(nextZ, -halfDepth - point.z), halfDepth - point.z);
   }
   return { dx: nextX, dz: nextZ };
+}
+
+/** Select topology, not nearby geometry; generated text stays independently selectable. */
+export function sketchConnectedPathSelection(profile: Pick<SketchProfile, "segments" | "texts">, segmentId: string): Extract<SketchSelection, {kind:"multiple"}> | null {
+  const text=profile.texts?.find(text=>text.segmentIds.includes(segmentId));
+  if(text)return {kind:"multiple",pointIds:[...text.pointIds],segmentIds:[...text.segmentIds]};
+  const generated=new Set(profile.texts?.flatMap(text=>text.segmentIds));
+  const segments=profile.segments.filter(segment=>!generated.has(segment.id));
+  const seed=segments.find(segment=>segment.id===segmentId);
+  if(!seed)return null;
+  const adjacent=new Map<string,typeof segments>();
+  for(const segment of segments)for(const id of [segment.startId,segment.endId]){
+    const entries=adjacent.get(id)??[];entries.push(segment);adjacent.set(id,entries);
+  }
+  const points=new Set<string>(),selected=new Set<string>(),pending=[seed.startId];
+  while(pending.length){const id=pending.pop()!;if(points.has(id))continue;points.add(id);
+    for(const segment of adjacent.get(id)??[]){selected.add(segment.id);pending.push(segment.startId,segment.endId);}
+  }
+  return {kind:"multiple",pointIds:[...points],segmentIds:segments.filter(segment=>selected.has(segment.id)).map(segment=>segment.id)};
+}
+
+export type SketchSegmentClick = {id:string;clientX:number;clientY:number;time:number};
+/** Pointer capture retargets native dblclick events to the SVG, so recognize releases instead. */
+export function sketchRepeatedSegmentClick(previous:SketchSegmentClick|null,current:SketchSegmentClick):boolean {
+  return Boolean(previous&&previous.id===current.id&&current.time>=previous.time&&current.time-previous.time<=500&&Math.hypot(current.clientX-previous.clientX,current.clientY-previous.clientY)<=5);
 }

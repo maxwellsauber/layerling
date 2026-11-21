@@ -4,10 +4,14 @@ import { sketchConstraintLabel } from "@/lib/sketchConstraintLabels";
 import { localizedError } from "@/lib/userErrors";
 import { t } from "@/lib/i18n";
 import { useLanguage } from "@/lib/useLanguage";
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Pencil, Eye, EyeOff, ListTree, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { useMovablePanel, type MovablePanelOptions } from "@/lib/useMovablePanel";
 import { capturePointer } from "@/lib/pointerCapture";
+
+import { ProjectVariablesContext } from "@/components/workplane/ProjectVariablesContext";
+import { variableReferences, resolveProjectVariables, evaluateVariableExpression, type VariableExpression } from "@/lib/projectVariables";
+import { evaluateArithmetic } from "@/lib/measurementUnits";
 
 const CONSTRAINT_PANEL: MovablePanelOptions = {
   floatingStyle: { right: "auto", bottom: "auto" },
@@ -19,7 +23,7 @@ import type { SketchConstraint, SketchProfile } from "@/types/layerling";
 export function SketchConstraintInspector({ rule: requestedRule, profile, onUpdate, onDelete, onClose, onSelect, onSelectShape, onRenameShape, rejectedConstraintId, annotationsVisible = true, onToggleAnnotations }: {
   rule: SketchConstraint;
   profile: SketchProfile;
-  onUpdate?: (id: string, value: number) => boolean | undefined;
+  onUpdate?: (id: string, value: number, binding?: VariableExpression) => boolean | undefined;
   onDelete?: (id: string) => void;
   onClose: () => void;
   onSelect?: (id: string) => void;
@@ -30,6 +34,8 @@ export function SketchConstraintInspector({ rule: requestedRule, profile, onUpda
   onToggleAnnotations?: () => void;
 }) {
   useLanguage();
+  const variableContext=useContext(ProjectVariablesContext);
+  const {variables}=variableContext;
   const allConstraints = profile.constraints ?? [requestedRule];
   const relationships = sketchConstraintRelationships(profile, allConstraints);
   const relationship = relationships.find((entry) => entry.members.some((member) => member.id === requestedRule.id)) ?? { rule: requestedRule, members: [requestedRule], references: sketchConstraintReferences(requestedRule) };
@@ -46,7 +52,7 @@ export function SketchConstraintInspector({ rule: requestedRule, profile, onUpda
     return first && second ? second.radius - first.radius : undefined;
   })();
   const current = "value" in rule ? rule.value : radialGap === undefined ? undefined : Math.abs(radialGap);
-  const [draft, setDraft] = useState(String(current ?? ""));
+  const [draft, setDraft] = useState(rule.dimensionBinding?.expression ?? String(current ?? ""));
   const [error, setError] = useState<string>();
   const groups = relationship.references;
   const segments = profile.segments.filter((segment) =>
@@ -250,11 +256,17 @@ export function SketchConstraintInspector({ rule: requestedRule, profile, onUpda
               <form className="property-list" onSubmit={(event) => {
                 event.preventDefault();
                 if (rule.id === rejectedConstraintId) return;
-                const value = draft.trim() ? Number(draft.replace(",", ".")) : NaN;
+                let value:number,binding:VariableExpression|undefined;
+                try {
+                  if (/(?:^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*/.test(draft)) {
+                    binding=variableReferences(draft,variables);
+                    value=evaluateVariableExpression(binding,resolveProjectVariables(variables));
+                  } else value=evaluateArithmetic(draft.replace(",", "."));
+                } catch (error) {setError(error instanceof Error?error.message:String(error));return;}
                 const validation = sketchConstraintValueError(rule, value);
                 if (validation) { setError(validation); return; }
                 const signedValue = rule.kind === "concentric" && (radialGap ?? 0) < 0 ? -value : value;
-                const saved = onUpdate?.(rule.id, signedValue);
+                const saved = binding ? onUpdate?.(rule.id, signedValue, binding) : onUpdate?.(rule.id, signedValue);
                 setError(saved ? undefined : t("sketchUi.couldNotApplyThisValueReviewTheHighlightedGeometry"));
               }}>
                 <label className="sketch-image-position-field">
@@ -268,6 +280,7 @@ export function SketchConstraintInspector({ rule: requestedRule, profile, onUpda
                 <button className="inspector-action-button" type="submit" disabled={!onUpdate || rule.id === rejectedConstraintId}>{t("align.gapApply")}</button>
               </form>
             )}
+            {rule.dimensionBinding && <button type="button" className="parameter-binding-indicator" onClick={()=>variableContext.open?.()}>ƒ {rule.dimensionBinding.expression}</button>}
             {error && <span className="sketch-constraint-error" role="alert">{localizedError(error)}</span>}
           </div>
         </div>

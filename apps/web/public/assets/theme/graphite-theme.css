@@ -9075,6 +9075,79 @@ html[data-theme="dark"]:where([data-palette="graphite"]) .layer-view-chart path 
   stroke: #8fb3e0;
 }
 
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-gallery {
+  border: 1px solid var(--border-color, #cacaca);
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-example-card {
+  border: 1px solid var(--border-color, #cacaca);
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-gallery button:focus-visible {
+  outline: 2px solid var(--primary);
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-example-featured .demo-example-card {
+  border-color: var(--accent, #bd6b12);
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-crayon-label > span {
+  border-bottom: 3px dashed #e79a2d;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-crayon-label > span > span {
+  color: #dd6139;
+  text-shadow: .7px .5px 0 currentColor, -.5px .7px 0 currentColor;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-crayon-label > span > span:nth-child(4n+2) {
+  color: #2c9baf;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-crayon-label > span > span:nth-child(4n+3) {
+  color: #c78b12;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .demo-crayon-label > span > span:nth-child(4n) {
+  color: #8d65b9;
+}
+
+html[data-theme="dark"]:where([data-palette="graphite"]) .demo-crayon-label {
+  filter: brightness(1.35);
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .sketch-text-panel {
+  border: 1px solid var(--toolbar-edge, #c5c5c5);
+  background: var(--panel);
+  color: var(--foreground);
+  box-shadow: 0 4px 18px #0002;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .sketch-text-panel input:not([type=checkbox]),
+:where(html[data-theme="dark"][data-palette="graphite"]) .sketch-text-panel select,
+:where(html[data-theme="dark"][data-palette="graphite"]) .sketch-text-panel textarea {
+  border: 1px solid #8f8f8f;
+  background: var(--surface, var(--panel));
+  color: inherit;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .sketch-text-panel fieldset {
+  border: 1px solid #8f8f8f;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .sketch-text-panel button {
+  border: 1px solid #8f8f8f;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .sketch-text-panel button[aria-pressed=true] {
+  outline: 2px solid #dc850b;
+}
+
+:where(html[data-theme="dark"][data-palette="graphite"]) .sketch-text-panel input[type=range] {
+  border: 0;
+  accent-color: var(--accent, #dc850b);
+}
+
 :where(html[data-theme="dark"][data-palette="graphite"]) .dashboard-welcome-hide {
   color: #717171;
   background: transparent;

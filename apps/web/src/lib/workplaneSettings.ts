@@ -1,3 +1,4 @@
+import { normalizeLoftSvgProfile } from "@/lib/loftSvgGeometry";
 import { DEFAULT_OVERHANG_ANGLE, normalizeOverhangAngle } from "@/lib/overhangLimits";
 import type { CustomSnapGrid, CustomSnapGridSize, GridSize, HistoryRetentionLimit, MeasurementAccuracy, ShapeCustomization, ShapeCustomizationMap, ShapeKind, WorkplaneWorkspaceSettings } from "@/types/layerling";
 import { normalizeScaleForUnits } from "@/lib/measurementUnits";
@@ -583,8 +584,10 @@ export function normalizeShapeCustomizations(value: unknown, fallback: ShapeCust
       entry.knurlChamfer = optionalShapeNumber(source.knurlChamfer, fallbackEntry?.knurlChamfer, 0, MAX_CUSTOM_SHAPE_DIMENSION);
     }
     if (kind === "loft") {
-      const outline = (value: unknown, fallback: "round" | "rectangle" | "polygon" | undefined) =>
-        value === "round" || value === "rectangle" || value === "polygon" ? value : fallback;
+      const outline = (value: unknown, fallback: "round" | "rectangle" | "polygon" | "svg" | undefined) =>
+        value === "round" || value === "rectangle" || value === "polygon" || value === "svg" ? value : fallback;
+      entry.loftBottomSvg = normalizeLoftSvgProfile(source.loftBottomSvg ?? fallbackEntry?.loftBottomSvg);
+      entry.loftTopSvg = normalizeLoftSvgProfile(source.loftTopSvg ?? fallbackEntry?.loftTopSvg);
       entry.loftBottomOutline = outline(source.loftBottomOutline, fallbackEntry?.loftBottomOutline);
       entry.loftTopOutline = outline(source.loftTopOutline, fallbackEntry?.loftTopOutline);
       for (const key of ["loftBottomWidth", "loftBottomDepth", "loftTopWidth", "loftTopDepth"] as const) {

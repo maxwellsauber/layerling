@@ -12,6 +12,33 @@ import {
 } from "@/lib/appTheme";
 
 describe("application theme preference", () => {
+  it("defaults new browsers to Slime Time and preserves every explicit choice", () => {
+    expect(readStoredAppTheme(null)).toBe("slime");
+    expect(readStoredAppTheme({ getItem: () => null })).toBe("slime");
+    expect(readStoredAppTheme({ getItem: () => { throw new Error("blocked"); } })).toBe("slime");
+    for (const choice of ["system", "light", "dark", "graphite", "slime", "time-machine"] as const) {
+      expect(readStoredAppTheme({ getItem: () => choice })).toBe(choice);
+    }
+  });
+  it("persists Slime Time as its own palette with readable light-theme behavior",()=>{
+    expect(normalizeAppThemePreference('slime')).toBe('slime');
+    expect(resolveAppTheme('slime',true)).toBe('light');expect(resolveAppTheme('slime',false)).toBe('light');
+    expect(appThemePalette('slime')).toBe('slime');
+    const values=new Map<string,string>(),storage={getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>{values.set(key,value);}};
+    storeAppTheme(storage,'slime');expect(readStoredAppTheme(storage)).toBe('slime');
+  });
+
+  it("persists 88 MPH independently and always resolves it to dark", () => {
+    expect(normalizeAppThemePreference("time-machine")).toBe("time-machine");
+    expect(resolveAppTheme("time-machine", false)).toBe("dark");
+    expect(resolveAppTheme("time-machine", true)).toBe("dark");
+    expect(appThemePalette("time-machine")).toBe("time-machine");
+    const values = new Map<string, string>();
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+    storeAppTheme(storage, "time-machine");
+    expect(readStoredAppTheme(storage)).toBe("time-machine");
+  });
+
   it("normalizes stored values and resolves the system theme", () => {
     expect(normalizeAppThemePreference("light")).toBe("light");
     expect(normalizeAppThemePreference("dark")).toBe("dark");
@@ -62,6 +89,12 @@ describe("application theme preference", () => {
       applyAppTheme("graphite", true);
       expect(appended).toEqual([{ id: GRAPHITE_STYLESHEET_ID, rel: "stylesheet", href: GRAPHITE_STYLESHEET_HREF }]);
       expect(root.dataset).toMatchObject({ theme: "dark", palette: "graphite" });
+      applyAppTheme("slime", false);
+      expect(root.dataset).toMatchObject({theme:"light",palette:"slime"});
+      expect(appended).toHaveLength(1);
+      applyAppTheme("time-machine", false);
+      expect(root.dataset).toMatchObject({ theme: "dark", palette: "time-machine" });
+      expect(root.style.colorScheme).toBe("dark");
       applyAppTheme("light", false);
       expect(root.dataset.palette).toBeUndefined();
       expect(root.dataset.theme).toBe("light");

@@ -239,6 +239,7 @@ export function useCustomShapes(options: CustomShapesOptions) {
     const sourceProjectId = projectInfoRef.current.projectId;
     const name = customShapeName(id);
     const restored = await importLylProject(await readCustomShapePackage(id));
+    if(restored.history[restored.historyIndex]?.variables?.length)throw Error(t("variables.openSeparately"));
     if (projectInfoRef.current.projectId !== sourceProjectId) throw new Error(t("status.pasteCancelled"));
     if (restored.shapes.length === 0) throw new Error(t("status.insertDesignEmpty", { name }));
     const placed = placeCustomShape(restored, point ?? options.newShapeOrigin?.(placementWorkplaneRef.current) ?? placementWorkplaneRef.current.origin, notesRef.current);
@@ -254,6 +255,7 @@ export function useCustomShapes(options: CustomShapesOptions) {
     setNotice(t("status.validatingFile", { name: file.name }), true);
     try {
       const restored = await importLylProject(await file.arrayBuffer());
+      if(restored.history[restored.historyIndex]?.variables?.length)throw Error(t("variables.openSeparately"));
       if (projectInfoRef.current.projectId !== sourceProjectId) {
         setNotice(t("status.importCancelled", { count: 1 }));
         return false;
@@ -406,6 +408,7 @@ export function useCustomShapes(options: CustomShapesOptions) {
     const failures: string[] = [];
     const packEntry = async (entry: { name: string; bytes: Uint8Array }) => {
       const restored = await importLylProject(entry.bytes);
+      if(restored.history[restored.historyIndex]?.variables?.length)throw Error(t("variables.openSeparately"));
       if (restored.shapes.length === 0) {
         failures.push(entry.name);
         return;

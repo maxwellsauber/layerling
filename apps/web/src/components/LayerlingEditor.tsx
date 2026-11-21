@@ -1,4 +1,10 @@
 "use client";
+import { resolveSketchVariableBindings } from "@/lib/sketchVariableBindings";
+import { ProjectVariablesPanel } from "@/components/workplane/ProjectVariablesPanel";
+import { ProjectVariablesContext } from "@/components/workplane/ProjectVariablesContext";
+import { projectParameterPatch, projectParameterValue } from "@/components/workplane/ShapeInspector";
+import { resolveProjectVariables, variableReferences, evaluateVariableExpression, compileVariableDraft, rewriteParameterNames, parameterValue, type ProjectVariable, type VariableExpression } from "@/lib/projectVariables";
+import { refreshLoftSketches } from "@/lib/loftSketch";
 
 import { linkedMirrorSketchSelection } from "@/lib/sketchLinkedMirror";
 import { type GroupHoleChange, withHoleDiameters } from "@/lib/groupHoles";
@@ -56,8 +62,10 @@ import { DEFAULT_QR_WIDTH, MAX_QR_HEIGHT, MAX_QR_WIDTH, MIN_QR_HEIGHT, MIN_QR_WI
 import { iconSourceFromFile, PICTURE_FILE_ACCEPT, picturePixels, type IconSource } from "@/lib/pictureIcon";
 import { loadedManifoldRuntime, onManifoldReady } from "@/lib/manifoldHandle";
 import { canApplySketchCornerTreatment } from "@/lib/sketchFilletChamfer";
+import { SketchTextPanel } from "@/components/SketchTextPanel";
+import { attachSketchTextPath, setSketchTextPathGuide, carrySketchTexts, regenerateSketchTexts, detachSketchTextPath, newSketchText, withoutSketchTextGeometry, sketchTextPathSelection, convertSketchTextToOutlines } from "@/lib/sketchText";
 import { SKETCH_POLYGON_DEFAULT_SIDES, SKETCH_STAR_DEFAULT_INNER_PERCENT, sketchPrimitiveGeometry, sketchPrimitiveStartSize } from "@/lib/sketchPrimitives";
-import { applySketchConstraints, withSketchConstraint, removeSketchConstraintRelationship, type SketchConstraintFailure } from "@/lib/sketchConstraints";
+import { applySketchConstraints, sketchConstraintReferences, withSketchConstraint, removeSketchConstraintRelationship, type SketchConstraintFailure } from "@/lib/sketchConstraints";
 import type { SketchConstraintInput } from "@/types/layerling";
 import { cloneSketchProfile, orderedSketchPaths, sketchWithPointMode, withSmoothHandlesAfterRemoval, withSmoothSketchHandles } from "@/lib/sketchSmoothHandles";
 import { curveThroughPoints } from "@/lib/sketchCurveThroughPoints";
@@ -180,7 +188,7 @@ import { historyStepText } from "@/lib/historyStepText";
 import { historyViewMcpCommand } from "./workplane/historyViewMcp";
 import { attachmentsFingerprint } from "@/lib/projectAttachments";
 import { ATTACHMENT_MCP_READ_ACTIONS, attachmentMcpCommand, attachmentMcpList } from "@/lib/projectAttachmentsMcp";
-import { appendEditorHistorySnapshot, boundedEditorHistoryState, continuesKeyRun, type KeyRun, editorHistoryBranch, editorHistoryEntry, editorHistoryForExport, historyStateAt, hydrateEditorHistoryState, notesForHistoryIndex, projectSceneFingerprint, projectShapesFingerprint, workplaneForHistoryIndex, type EditorHistoryEntry, type EditorHistoryState } from "@/lib/editorHistory";
+import { appendEditorHistorySnapshot, boundedEditorHistoryState, continuesKeyRun, type KeyRun, editorHistoryBranch, editorHistoryEntry as baseEditorHistoryEntry, editorHistoryForExport, historyStateAt, hydrateEditorHistoryState, notesForHistoryIndex, projectSceneFingerprint, projectShapesFingerprint, workplaneForHistoryIndex, type EditorHistoryEntry, type EditorHistoryState } from "@/lib/editorHistory";
 import { deleteHistoryEntries, formatHistoryBytes, historyFreedBytes, historyIndexAfterDelete } from "@/lib/historyStepSizes";
 import { snapShapeFootprintToVisibleGrid, visibleGridStep } from "@/lib/gridSnap";
 import { composedShapeRotation, geometryRotationDegreesForShortcut, geometryRotationDelta, rotatedGeometryShapePatch } from "@/lib/geometryRotation";
@@ -3171,6 +3179,11 @@ export function LayerlingEditor({
   resolvedTheme?: ResolvedAppTheme;
   onThemePreferenceChange?: (preference: AppThemePreference) => void;
 } = {}) {
+  const variablesRef=useRef<ProjectVariable[]>(initialHistory?.[initialHistoryIndex??initialHistory.length-1]?.variables??[]);
+  const [projectVariables,setProjectVariables]=useState(variablesRef.current);
+  const [variablesOpen,setVariablesOpen]=useState(false);
+  const applyingVariablesRef=useRef(false);
+  function editorHistoryEntry(...args:Parameters<typeof baseEditorHistoryEntry>){return baseEditorHistoryEntry(args[0],args[1],args[2],args[3],args[4],args[5]??variablesRef.current);}
   const initialSceneRef = useRef<WorkplaneShape[] | null>(null);
   if (initialSceneRef.current === null) {
     initialSceneRef.current = initialShapes.map(canonicalizeShape);
@@ -3670,11 +3683,25 @@ export function LayerlingEditor({
   const [sketchClipboard, setSketchClipboard] = useState<SketchClipboard | null>(null);
   const sketchHistoryRef = useRef(sketchHistory);
   const sketchHistoryIndexRef = useRef(sketchHistoryIndex);
+  // Sketch steps retain the project checkpoint they were made against. Variable
+  // edits can then be undone with the sketch, including their effects on other bodies.
+  const sketchProjectHistoryRef=useRef(new WeakMap<SketchProfile,EditorHistoryState>());
   const [sketchActivePointId, setSketchActivePointId] = useState<string | null>(null);
   const [sketchSelection, setSketchSelection] = useState<SketchSelection>(null);
+  const [sketchTextPicking, setSketchTextPicking] = useState<string | null>(null);
+  const [activeSketchTextId, setActiveSketchTextId] = useState<string | null>(null);
+  const selectedSketchText = sketchProfile.texts?.find(text => text.id === activeSketchTextId) ?? sketchProfile.texts?.find(text => sketchSelection?.kind === "segment" ? text.segmentIds.includes(sketchSelection.id) : sketchSelection?.kind === "point" ? text.pointIds.includes(sketchSelection.id) : sketchSelection?.kind === "multiple" && sketchSelection.pointIds.length > 0 && sketchSelection.pointIds.every(id => text.pointIds.includes(id)) && sketchSelection.segmentIds.every(id => text.segmentIds.includes(id)));
+  useEffect(() => {
+    const text = sketchProfile.texts?.find(text => text.id === activeSketchTextId);
+    if (!text) return;
+    setSketchSelection(current => current?.kind === "multiple" && JSON.stringify(current.pointIds) === JSON.stringify(text.pointIds) && JSON.stringify(current.segmentIds) === JSON.stringify(text.segmentIds)
+      ? current : { kind: "multiple", pointIds: text.pointIds, segmentIds: text.segmentIds });
+  }, [sketchProfile.texts, activeSketchTextId]);
   const [sketchMeasureStart, setSketchMeasureStart] = useState<SketchPoint | null>(null);
   const [sketchMeasurement, setSketchMeasurement] = useState<SketchMeasurement>(null);
   const [editingSketchShapeId, setEditingSketchShapeId] = useState<string | null>(null);
+  const liveSketchSessionRef=useRef({active:sketchActive,id:editingSketchShapeId});
+  liveSketchSessionRef.current={active:sketchActive,id:editingSketchShapeId};
   const [sketchCornerDialog, setSketchCornerDialog] = useState<"fillet" | "chamfer" | null>(null);
   // The sides of the polygon and star and the inner size of the star, set in the sketch shapes menu (#280).
   const [sketchShapeOptions, setSketchShapeOptions] = useState<SketchShapeOptions>({
@@ -3721,7 +3748,7 @@ export function LayerlingEditor({
   /** The window for fonts of one's own (#customFonts), opened from a text's font select. */
   const [fontManagerOpen, setFontManagerOpen] = useState(false);
   // A font that came or went changes the font select and maybe the letters drawn: draw again.
-  const [, setCustomFontRound] = useState(0);
+  const [customFontRound, setCustomFontRound] = useState(0);
   useEffect(() => onFontManagerRequested(() => setFontManagerOpen(true)), []);
   useEffect(() => onCustomFontsChanged(() => setCustomFontRound((round) => round + 1)), []);
   // A text with a fill mode draws plain until the 2D kernel is there, then again properly (#215).
@@ -5014,7 +5041,7 @@ export function LayerlingEditor({
         return;
       }
       const canonicalNext = nextShapes.map(canonicalizeShape);
-      const serialized = projectShapesFingerprint(canonicalNext);
+      const serialized = projectShapesFingerprint(canonicalNext)+JSON.stringify(variablesRef.current);
       if (!force && lastProjectShapesSyncRef.current === serialized) {
         return;
       }
@@ -5262,7 +5289,39 @@ export function LayerlingEditor({
         setNotice(t("status.historyViewBlocksEdits"));
         return;
       }
-      const canonicalNext = next.map(canonicalizeShape);
+      try {
+        let values:Map<string,number>|undefined;
+        const validate=(list:readonly WorkplaneShape[])=>list.forEach(shape=>{if(shape.parameterBindings){values??=resolveProjectVariables(variablesRef.current);for(const binding of Object.values(shape.parameterBindings))evaluateVariableExpression(binding,values);}for(const rule of shape.sketchProfile?.constraints??[])if(rule.dimensionBinding){values??=resolveProjectVariables(variablesRef.current);evaluateVariableExpression(rule.dimensionBinding,values);}if(shape.groupedShapes)validate(shape.groupedShapes);});
+        validate(next);
+      }catch(error){setNotice(error instanceof Error?error.message:String(error));return;}
+      let bindingsReleased=0;
+      // Compare restored world-space children so group transforms release only
+      // the properties they actually changed. Keep stored local geometry intact.
+      const previousParameters=new Map<string,WorkplaneShape>();
+      const collectParameters=(list:readonly WorkplaneShape[])=>list.forEach(shape=>{
+        previousParameters.set(shape.id,shape);
+        if(shape.groupedShapes)collectParameters(restoreGroupedChildren(shape));
+      });
+      if(!applyingVariablesRef.current)collectParameters(shapesRef.current);
+      const releaseParameters=(shape:WorkplaneShape,world=shape):WorkplaneShape=>{
+        const old=previousParameters.get(shape.id);
+        let result=shape;
+        if(old?.parameterBindings){
+          bindingsReleased+=Object.keys(old.parameterBindings).filter(field=>!shape.parameterBindings?.[field]).length;
+          const bindings={...shape.parameterBindings};let changed=false;
+          for(const field of Object.keys(bindings))if(JSON.stringify(bindings[field])===JSON.stringify(old.parameterBindings[field])&&Math.abs(projectParameterValue(world,field,workspaceSettingsRef.current)-projectParameterValue(old,field,workspaceSettingsRef.current))>1e-7){delete bindings[field];changed=true;bindingsReleased++;}
+          if(changed)result={...result,parameterBindings:Object.keys(bindings).length?bindings:undefined};
+        }
+        if(shape.groupedShapes){
+          const parts=restoreGroupedChildren(world);
+          const children=shape.groupedShapes.map((child,index)=>releaseParameters(child,parts[index]));
+          if(children.some((child,index)=>child!==shape.groupedShapes![index]))result={...result,groupedShapes:children};
+        }
+        return result;
+      };
+      const released = applyingVariablesRef.current ? next : next.map(shape=>releaseParameters(shape));
+      if(bindingsReleased&&!message)message=t("variables.bindingReleased");
+      const canonicalNext = refreshLoftSketches(released, shapesRef.current).map(canonicalizeShape);
       // Lock shape (#1277): whatever tool got this far, a part of locked shape keeps its size, name and parts.
       if (!openGroupTransitionRef.current) {
         const held = shapeLockBroken(shapesRef.current, canonicalNext);
@@ -5531,7 +5590,7 @@ export function LayerlingEditor({
       const carried = "notes" in anchored || !latest?.notes ? anchored : { ...anchored, notes: latest.notes };
       // Retain persistent sketch relationships when older tools create partial profiles.
       const withConstraints = "constraints" in carried || !latest?.constraints ? carried : { ...carried, constraints: latest.constraints };
-      const carriedConstraints = "offsets" in withConstraints || !latest?.offsets ? withConstraints : { ...withConstraints, offsets: latest.offsets };
+      const carriedConstraints = carrySketchTexts("offsets" in withConstraints || !latest?.offsets ? withConstraints : { ...withConstraints, offsets: latest.offsets }, latest);
       const moved = new Set<string>();
       if (latest) {
         const before = new Map(latest.points.map((point) => [point.id, point]));
@@ -5544,7 +5603,10 @@ export function LayerlingEditor({
       if (offsetEdit) for (const feature of carriedConstraints.offsets ?? []) {
         for (const id of feature.pointIds) moved.delete(id);
       }
-      const solved = applySketchConstraints(carriedConstraints, moved);
+      let parameterized:SketchProfile;
+      try{parameterized=resolveSketchVariableBindings(carriedConstraints,resolveProjectVariables(variablesRef.current));}
+      catch(error){setNotice(error instanceof Error?error.message:String(error));return false;}
+      const solved = applySketchConstraints(parameterized, moved);
       if (!solved.ok) {
         const attempted = (carriedConstraints.constraints ?? []).filter((rule) =>
           !latest?.constraints?.some((previous) => JSON.stringify(previous) === JSON.stringify(rule)));
@@ -5553,14 +5615,17 @@ export function LayerlingEditor({
         return false;
       }
       // Moving shapes over each other makes no shared points where their lines cross (#239); drawing does.
-      const intersected = latest && onlyMovesPoints(latest, solved.profile) ? solved.profile : addLineIntersectionPoints(solved.profile, createLocalId);
+      const intersected = latest && onlyMovesPoints(latest, solved.profile) ? solved.profile : addLineIntersectionPoints(withoutSketchTextGeometry(solved.profile), createLocalId);
       const refreshed = intersected !== solved.profile && intersected.offsets?.length ? applySketchConstraints(intersected) : { ok: true as const, profile: intersected };
       if (!refreshed.ok) {
         setSketchConstraintFailure(refreshed.failure);
         setNotice(refreshed.failure.offsetError ? localizedError(refreshed.failure.offsetError.message) : t("status.sketchConstraintConflict"));
         return false;
       }
-      const snapshot = cloneSketchProfile(refreshed.profile);
+      let liveProfile: SketchProfile;
+      try { liveProfile = regenerateSketchTexts(refreshed.profile, carriedConstraints); }
+      catch { setNotice(t("sketchText.buildError")); return false; }
+      const snapshot = cloneSketchProfile(liveProfile);
       // A locked outline (#653) stays as it is, whatever tool tried to change it.
       if (latest && changesLockedOutline(latest, snapshot)) {
         setNotice(t("status.sketchOutlineLocked"));
@@ -5579,6 +5644,7 @@ export function LayerlingEditor({
         ? JSON.stringify(trimmed[trimmed.length - 2]) === JSON.stringify(snapshot) ? trimmed.slice(0, -1) : [...trimmed.slice(0, -1), stored]
         : [...trimmed, stored].slice(-MAX_SKETCH_HISTORY_ENTRIES);
       sketchKeyRunRef.current = keyRunKey !== undefined && nextHistory[nextHistory.length - 1] === stored ? { key: keyRunKey, at: now, entry: stored } : null;
+      sketchProjectHistoryRef.current.set(stored,{entries:historyRef.current,index:historyIndexRef.current});
       sketchHistoryRef.current = nextHistory;
       sketchHistoryIndexRef.current = nextHistory.length - 1;
       setSketchHistory(nextHistory);
@@ -5612,6 +5678,12 @@ export function LayerlingEditor({
     return Math.abs(origin.x - workplane.origin.x) < 1e-9 ? workplane : { ...workplane, origin };
   }, [newShapeOrigin]);
 
+  useEffect(() => {
+    if (sketchActive && sketchProfile.texts?.length) commitSketchProfile(sketchProfile);
+    // Font arrivals are independent of geometry edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customFontRound]);
+
   const beginSketch = useCallback((
     operation: SketchOperation,
     profile?: SketchProfile,
@@ -5639,6 +5711,8 @@ export function LayerlingEditor({
     setSketchTool(profile?.segments.length ? "select" : "line");
     setSketchProfile(initial);
     const initialHistory = [cloneSketchProfile(initial)];
+    sketchProjectHistoryRef.current=new WeakMap();
+    sketchProjectHistoryRef.current.set(initialHistory[0],{entries:historyRef.current,index:historyIndexRef.current});
     sketchHistoryRef.current = initialHistory;
     sketchHistoryIndexRef.current = 0;
     setSketchHistory(initialHistory);
@@ -5902,6 +5976,25 @@ export function LayerlingEditor({
     commitSketchProfile(anchor === "center" ? { ...rest, sweepAnchor: undefined } : { ...rest, sweepAnchor: anchor }, t("status.sketchSweepAnchorChanged", { anchor: t(anchor === "left" ? "sketch.sweepAnchorLeft" : anchor === "right" ? "sketch.sweepAnchorRight" : "sketch.sweepAnchorCenter") }));
   }, [commitSketchProfile, sketchProfile]);
 
+  const restoreSketchProjectCheckpoint=useCallback((profile:SketchProfile)=>{
+    const checkpoint=sketchProjectHistoryRef.current.get(profile);
+    if(!checkpoint||(checkpoint.entries===historyRef.current&&checkpoint.index===historyIndexRef.current))return;
+    const entry=checkpoint.entries[checkpoint.index];if(!entry)return;
+    historyRef.current=checkpoint.entries;historyIndexRef.current=checkpoint.index;
+    variablesRef.current=entry.variables??[];shapesRef.current=entry.shapes.map(canonicalizeShape);
+    selectedIdsRef.current=entry.selectedIds;notesRef.current=normalizeNotes(entry.notes);
+    placementWorkplaneRef.current=normalizePlacementWorkplane(entry.placementWorkplane);
+    setHistory(checkpoint.entries);setHistoryIndex(checkpoint.index);
+    setProjectVariables(variablesRef.current);setShapes(shapesRef.current);
+    setSelectedIds(selectedIdsRef.current);setNotes(notesRef.current);
+    setPlacementWorkplane(placementWorkplaneRef.current);
+    const plane=placementWorkplaneRef.current;
+    placementElevationRef.current=Math.abs(plane.normal.x)<1e-6&&Math.abs(plane.normal.y-1)<1e-6&&Math.abs(plane.normal.z)<1e-6?plane.origin.y:0;
+    setPlacementElevation(placementElevationRef.current);
+    setOpenGroupLevels(openGroupHistoryRef.current.get(entry.fingerprint)??[]);
+    syncProjectShapes(shapesRef.current,true);
+  },[syncProjectShapes,setOpenGroupLevels]);
+
   const sketchUndo = useCallback(() => {
     const currentHistory = sketchHistoryRef.current;
     const currentIndex = sketchHistoryIndexRef.current;
@@ -5912,11 +6005,14 @@ export function LayerlingEditor({
     const nextIndex = currentIndex - 1;
     sketchHistoryIndexRef.current = nextIndex;
     setSketchHistoryIndex(nextIndex);
-    setSketchProfile(cloneSketchProfile(currentHistory[nextIndex] ?? emptySketchProfile()));
+    const restored=currentHistory[nextIndex]??emptySketchProfile();
+    restoreSketchProjectCheckpoint(restored);
+    setSketchProfile(cloneSketchProfile(restored));
+    setSketchConstraintFailure(null);
     setSketchActivePointId(null);
     setSketchSelection(null);
     setNotice(t("status.sketchUndo"));
-  }, []);
+  }, [restoreSketchProjectCheckpoint]);
 
   const sketchRedo = useCallback(() => {
     const currentHistory = sketchHistoryRef.current;
@@ -5928,11 +6024,14 @@ export function LayerlingEditor({
     const nextIndex = currentIndex + 1;
     sketchHistoryIndexRef.current = nextIndex;
     setSketchHistoryIndex(nextIndex);
-    setSketchProfile(cloneSketchProfile(currentHistory[nextIndex] ?? emptySketchProfile()));
+    const restored=currentHistory[nextIndex]??emptySketchProfile();
+    restoreSketchProjectCheckpoint(restored);
+    setSketchProfile(cloneSketchProfile(restored));
+    setSketchConstraintFailure(null);
     setSketchActivePointId(null);
     setSketchSelection(null);
     setNotice(t("status.sketchRedo"));
-  }, []);
+  }, [restoreSketchProjectCheckpoint]);
 
   const setActiveSketchTool = useCallback((tool: SketchTool) => {
     setSketchTool(tool);
@@ -6140,6 +6239,17 @@ export function LayerlingEditor({
     [commitSketchProfile, sketchProfile, sketchShapeOptions, workspaceSettings.shapeCustomizations],
   );
 
+  const addSketchText = () => {
+    const text = newSketchText(createLocalId("sketch-text"));
+    const next = regenerateSketchTexts({ ...sketchProfile, texts: [...sketchProfile.texts ?? [], text] });
+    if (commitSketchProfile(next) === false) return;
+    const made = next.texts!.at(-1)!;
+    setActiveSketchTextId(made.id);
+    setSketchSelection({ kind: "multiple", pointIds: made.pointIds, segmentIds: made.segmentIds });
+    setSketchTool("select");
+    setSketchTextPicking(null);
+  };
+
   const pressSketchPoint = useCallback(
     (id: string) => {
       const point = sketchProfile.points.find((entry) => entry.id === id);
@@ -6150,13 +6260,15 @@ export function LayerlingEditor({
         return;
       }
       if (sketchTool === "select") {
-        setSketchSelection({ kind: "point", id });
+        const text = sketchProfile.texts?.find(text => text.pointIds.includes(id));
+        setActiveSketchTextId(text?.id ?? null);
+        setSketchSelection(text ? { kind: "multiple", pointIds: text.pointIds, segmentIds: text.segmentIds } : { kind: "point", id });
         setSketchActivePointId(null);
         return;
       }
       connectSketchPoint(id);
     },
-    [connectSketchPoint, measureSketchPoint, sketchProfile.points, sketchTool],
+    [connectSketchPoint, measureSketchPoint, sketchProfile, sketchTool],
   );
 
   const deleteSketchPoint = useCallback(
@@ -6364,7 +6476,9 @@ export function LayerlingEditor({
     const plate = { minX: -width / 2, maxX: width / 2, minZ: -depth / 2, maxZ: depth / 2 };
     const offset = freeSketchPasteOffset(sketchProfile, source, plate);
     const pasted = pasteSketchClipboard(sketchProfile, source, offset, createLocalId);
-    commitSketchProfile(pasted.profile, message);
+    if (commitSketchProfile(pasted.profile, message) === false) return;
+    const pastedText = pasted.profile.texts?.find(text => pasted.pointIds.some(id => text.pointIds.includes(id)));
+    setActiveSketchTextId(pastedText?.id ?? null);
     setSketchActivePointId(null);
     setSketchSelection({ kind: "multiple", pointIds: pasted.pointIds, segmentIds: pasted.segmentIds, imageIds: pasted.imageIds });
   }, [commitSketchProfile, sketchProfile]);
@@ -6408,15 +6522,19 @@ export function LayerlingEditor({
   }, [commitSketchProfile, sketchProfile, sketchSelection]);
 
   const addSketchConstraint = useCallback((rule: SketchConstraintInput) => {
+    const generated = new Set(sketchProfile.texts?.flatMap(text => text.pointIds));
+    if (sketchConstraintReferences({ ...rule, id: "candidate" }).flat().some(id => generated.has(id))) {
+      setNotice(t("sketchText.convertHint")); return false;
+    }
     const id = createLocalId("sketch-constraint");
     return commitSketchProfile(withSketchConstraint(sketchProfile, { ...rule, id }), t("status.sketchConstraintAdded"));
   }, [commitSketchProfile, sketchProfile]);
 
-  const updateSketchConstraint = useCallback((id: string, value: number) => {
+  const updateSketchConstraint = useCallback((id: string, value: number, binding?: VariableExpression) => {
     const constraints = (sketchProfile.constraints ?? []).map((rule) => {
       if (rule.id !== id) return rule;
-      if ("value" in rule) return { ...rule, value };
-      if (rule.kind === "concentric") return { ...rule, radialGap: value };
+      if ("value" in rule) return { ...rule, value, dimensionBinding: binding };
+      if (rule.kind === "concentric") return { ...rule, radialGap: value, dimensionBinding: binding };
       return rule;
     });
     return commitSketchProfile({ ...sketchProfile, constraints }, t("status.sketchUpdated"));
@@ -6545,6 +6663,13 @@ export function LayerlingEditor({
     commitSketchProfile(withSegmentsConstruction(sketchProfile, new Set([id]), construction), t(construction ? "status.sketchMadeConstruction" : "status.sketchMadeSolid"));
   }, [commitSketchProfile, sketchProfile]);
 
+  const setSketchSegmentsConstruction = useCallback((ids:string[],construction:boolean)=>{
+    const generated=new Set(sketchProfile.texts?.flatMap(text=>text.segmentIds));
+    const eligible=new Set(ids.filter(id=>!generated.has(id)));
+    if(!eligible.size)return;
+    commitSketchProfile(withSegmentsConstruction(sketchProfile,eligible,construction),t(construction?"status.sketchMadeConstruction":"status.sketchMadeSolid"));
+  },[commitSketchProfile,sketchProfile]);
+
   const toggleSketchFromMiddle = useCallback(() => {
     const next = !sketchFromMiddle;
     setSketchFromMiddle(next);
@@ -6601,7 +6726,7 @@ export function LayerlingEditor({
         stroked.segments.forEach((segment) => {
           const loop = segment.id.replace(/-s\d+$/, "");
           const point = byId.get(segment.startId);
-          if (point) loops.set(loop, [...(loops.get(loop) ?? []), `${point.x} ${point.z}`]);
+          if (point) { const entries=loops.get(loop)??[]; entries.push(`${point.x} ${point.z}`); loops.set(loop,entries); }
         });
         setSketchStrokePreview([...loops.values()].map((loop) => `M ${loop.join(" L ")} Z`).join(" "));
       }).catch(() => setSketchStrokePreview(null));
@@ -6771,6 +6896,7 @@ export function LayerlingEditor({
     setSelectedIds([]);
     setHistory(hydratedHistory.entries);
     setHistoryIndex(hydratedHistory.index);
+    variablesRef.current=hydratedHistory.entries[hydratedHistory.index]?.variables??[];setProjectVariables(variablesRef.current);
     // Was aus der Datei kam, ist der Stand, der auch auf dem Server liegt.
     serverSavedFingerprintRef.current = { projectId: projectId ?? null, fingerprint: projectSceneFingerprint(incoming, incomingNotes) + attachmentsFingerprint(projectAttachmentsRef.current) };
     // Ein geoeffneter Entwurf ist keine Meldung wert: Dass er da ist, sieht man.
@@ -7078,6 +7204,78 @@ export function LayerlingEditor({
     [commitShapes, refuseLockedSelection, selectedIds, shapes, refuseBodyLockedSelection],
   );
 
+  async function applyVariableDraft(draft:ProjectVariable[]) {
+    const startShapes=shapesRef.current,startVariables=variablesRef.current;
+    const session=liveSketchSessionRef.current;
+    const startSketch=session.active?sketchHistoryRef.current[sketchHistoryIndexRef.current]:undefined;
+    const nextVariables=compileVariableDraft(variablesRef.current,draft);
+    if(JSON.stringify(nextVariables)===JSON.stringify(startVariables))return;
+    const renamed={shapes:rewriteParameterNames(shapesRef.current,nextVariables)};
+    const values=resolveProjectVariables(nextVariables);
+    let activeProfile:SketchProfile|undefined;
+    if(startSketch){
+      const renamedProfile=rewriteParameterNames([{sketchProfile:startSketch} as WorkplaneShape],nextVariables)[0].sketchProfile!;
+      activeProfile=regenerateSketchTexts(resolveSketchVariableBindings(renamedProfile,values),startSketch);
+      if(changesLockedOutline(startSketch,activeProfile))throw Error(t("status.sketchOutlineLocked"));
+    }
+    const update=async(shape:WorkplaneShape):Promise<WorkplaneShape>=>{
+      if(shape.groupedShapes?.length){
+        const parts=restoreGroupedChildren(shape),updated=await Promise.all(parts.map(update));
+        if(updated.every((p,i)=>p===parts[i]))return shape;
+        if(shape.locked||shape.shapeLocked)throw Error(t("variables.lockedGroup"));
+        const rebuilt=await rebuildGroupFromParts(shape,updated);if(!rebuilt.group)throw Error(rebuilt.failure);return rebuilt.group;
+      }
+      let next=shape;
+      if(shape.sketchProfile){
+        const resolvedProfile=resolveSketchVariableBindings(shape.sketchProfile,values);
+        if(resolvedProfile!==shape.sketchProfile){
+          const profile=regenerateSketchTexts(resolvedProfile,shape.sketchProfile);
+          if(shape.locked||shape.shapeLocked)throw Error(t("variables.locked"));
+          const built=shape.sketchOperation==='revolve'
+            ?await shapeFromRevolvedSketchProfile(profile,shape.sketchRevolve??{},shape)
+            :shape.sketchOperation==='sweep'?await cadShapeFromSketchSweep(profile,shape)
+            :await cadShapeFromSketchProfile(profile,shape.height,shape);
+          if(!built)throw Error(t("variables.blocked"));
+          next=placeSketchShape(built,placementWorkplaneRef.current,shape);
+        }
+      }
+      for(const [field,binding] of Object.entries(shape.parameterBindings??{})){
+        const value=evaluateVariableExpression(binding,values);
+        if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-value)<1e-7)continue;
+        if(next.locked||next.shapeLocked)throw Error(t("variables.locked"));
+        next=shapeWithInspectorPatch(next,projectParameterPatch(next,field,value,workspaceSettingsRef.current));
+        if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-value)>1e-6)throw Error(t("variables.resultRange"));
+      }
+      for(const [field,binding] of Object.entries(shape.parameterBindings??{}))if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-evaluateVariableExpression(binding,values))>1e-6)throw Error(t("variables.conflict"));
+      return next;
+    };
+    const next=await Promise.all(renamed.shapes.map(update));
+    if(shapesRef.current!==startShapes||variablesRef.current!==startVariables||liveSketchSessionRef.current.active!==session.active||liveSketchSessionRef.current.id!==session.id||(startSketch&&sketchHistoryRef.current[sketchHistoryIndexRef.current]!==startSketch))throw Error(t("variables.stale"));
+    const previous=variablesRef.current;
+    const previousResizeApproval=approvedConstrainedResizeRef.current;
+    approvedConstrainedResizeRef.current=true;
+    applyingVariablesRef.current=true;variablesRef.current=nextVariables;
+    try{commitShapes(next,selectedIdsRef.current);if(JSON.stringify(historyRef.current[historyIndexRef.current]?.variables??[])!==JSON.stringify(nextVariables))throw Error(t("variables.blocked"));setProjectVariables(nextVariables);
+      if(activeProfile){
+        const snapshot=cloneSketchProfile(activeProfile);
+        const steps=[...sketchHistoryRef.current.slice(0,sketchHistoryIndexRef.current+1),snapshot].slice(-MAX_SKETCH_HISTORY_ENTRIES);
+        sketchProjectHistoryRef.current.set(snapshot,{entries:historyRef.current,index:historyIndexRef.current});
+        sketchHistoryRef.current=steps;sketchHistoryIndexRef.current=steps.length-1;sketchKeyRunRef.current=null;
+        setSketchHistory(steps);setSketchHistoryIndex(steps.length-1);setSketchProfile(cloneSketchProfile(snapshot));setSketchConstraintFailure(null);
+      }
+      syncProjectShapes(shapesRef.current,true);}catch(e){variablesRef.current=previous;throw e;}finally{applyingVariablesRef.current=false;approvedConstrainedResizeRef.current=previousResizeApproval;}
+  }
+  function bindProjectParameter(id:string,field:string,expression:string){
+    const shape=shapesRef.current.find(s=>s.id===id);if(!shape)throw Error(t("variables.selectObject"));
+    if(shape.locked||shape.shapeLocked)throw Error(t("variables.unlock"));
+    if(shape.sketchProfile?.constraints?.length)throw Error(t("variables.sketchSizeHint"));
+    const binding=variableReferences(expression,variablesRef.current),value=evaluateVariableExpression(binding,resolveProjectVariables(variablesRef.current));
+    const patch=projectParameterPatch(shape,field,value,workspaceSettingsRef.current);
+    const next=shapeWithInspectorPatch(shape,{...patch,parameterBindings:{...shape.parameterBindings,[field]:binding}});
+    if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-value)>1e-6)throw Error(t("variables.resultRange"));
+    updateShape(id,{...patch,parameterBindings:next.parameterBindings});
+  }
+
   const deleteSelected = useCallback(() => {
     if (!hasSelection) {
       setNotice(t("status.selectShapeFirst"));
@@ -7373,6 +7571,7 @@ export function LayerlingEditor({
     const nextShapes = (entry?.shapes ?? []).map(canonicalizeShape);
     const nextSelection = (entry?.selectedIds ?? []).filter((id) => nextShapes.some((shape) => shape.id === id));
     const nextNotes = normalizeNotes(entry?.notes);
+    variablesRef.current=entry?.variables??[];setProjectVariables(variablesRef.current);
     const nextWorkplane = normalizePlacementWorkplane(entry?.placementWorkplane);
     // A workplane that comes back or goes away is a step of its own - say so (#246).
     const workplaneChanged = placementWorkplaneFingerprint(nextWorkplane) !== placementWorkplaneFingerprint(placementWorkplaneRef.current);
@@ -7419,6 +7618,7 @@ export function LayerlingEditor({
     const nextShapes = (entry?.shapes ?? []).map(canonicalizeShape);
     const nextSelection = (entry?.selectedIds ?? []).filter((id) => nextShapes.some((shape) => shape.id === id));
     const nextNotes = normalizeNotes(entry?.notes);
+    variablesRef.current=entry?.variables??[];setProjectVariables(variablesRef.current);
     const nextWorkplane = normalizePlacementWorkplane(entry?.placementWorkplane);
     // A workplane that comes back or goes away is a step of its own - say so (#246).
     const workplaneChanged = placementWorkplaneFingerprint(nextWorkplane) !== placementWorkplaneFingerprint(placementWorkplaneRef.current);
@@ -13964,6 +14164,10 @@ export function LayerlingEditor({
 
   /** Puts a font of one's own on every selected text and on the letters of every selected bin with a text, as one step. */
   const applyCustomFontToSelection = useCallback((fontId: string) => {
+    if (sketchActive && selectedSketchText) {
+      commitSketchProfile({ ...sketchProfile, texts: sketchProfile.texts!.map(text => text.id === selectedSketchText.id ? { ...text, font: fontId } : text) });
+      return;
+    }
     if (refuseBodyLockedSelection()) return;
     const selected = new Set(selectedIdsRef.current);
     const targets = shapesRef.current.filter((shape) => selected.has(shape.id) && takesCustomFont(shape));
@@ -13974,7 +14178,7 @@ export function LayerlingEditor({
       selectedIdsRef.current,
       t("font.usedOnText", { name }),
     );
-  }, [commitShapes, refuseBodyLockedSelection]);
+  }, [commitShapes, refuseBodyLockedSelection, sketchActive, selectedSketchText, sketchProfile, commitSketchProfile]);
 
   const startSimplifyTool = useCallback(() => {
     if (simplifyToolShape) {
@@ -19089,7 +19293,7 @@ export function LayerlingEditor({
     // mit demselben Inhalt. Das galt frueher als Aenderung und liess einen
     // Entwurf, den niemand angefasst hatte, kurz darauf hochladen.
     // The files of the design count as content too: one added or removed is saved to the server like a shape.
-    const fingerprint = projectSceneFingerprint(shapes, notes) + attachmentsFingerprint(projectAttachments);
+    const fingerprint = projectSceneFingerprint(shapes, notes) + attachmentsFingerprint(projectAttachments)+JSON.stringify(variablesRef.current);
     if (serverSaveProjectRef.current !== (projectId ?? null)) {
       serverSaveProjectRef.current = projectId ?? null;
       serverSaveStoppedRef.current = false;
@@ -19155,13 +19359,15 @@ export function LayerlingEditor({
    */
   const leaveToDashboard = useCallback(() => {
     if (!onHome) return;
+    // The editor stays mounted on the dashboard; flush its draft for reloads too.
+    sketchDraftWriteRef.current?.();
     let left = false;
     const leave = () => {
       if (left) return;
       left = true;
       // Counted on the way out, so the start page can ask about a design left empty. Notes and
       // reference points are something in it too.
-      onHome({ itemCount: shapesRef.current.length + notesRef.current.length });
+      onHome({ itemCount: shapesRef.current.length + notesRef.current.length + (sketchActive && sketchHasWork(sketchProfile) ? 1 : 0) });
     };
     window.setTimeout(leave, LEAVE_SNAPSHOT_DEADLINE_MS);
     // Der Entwurf auf dem Server wartet sonst auf den Fuenf-Sekunden-Takt. Wer
@@ -19176,7 +19382,7 @@ export function LayerlingEditor({
     saveProjectShapesNow();
     void saveToServerRef.current();
     void flushProjectSnapshot({ evenIfUnchanged: true }).finally(leave);
-  }, [flushProjectSnapshot, onHome, saveProjectShapesNow]);
+  }, [flushProjectSnapshot, onHome, saveProjectShapesNow, sketchActive, sketchProfile]);
 
   const insertLylDesign = useCallback(async (file: File) => {
     if (await insertDesignFile(file)) setTopPanel(null);
@@ -20149,8 +20355,10 @@ export function LayerlingEditor({
   };
 
   return (
+    <ProjectVariablesContext.Provider value={{variables:projectVariables,bind:bindProjectParameter,open:()=>setVariablesOpen(true)}}>
     <div className={`layerling-editor ${historyViewState ? "history-view-active" : ""} ${focusMode.active ? "focus-mode" : ""}`}>
       <SecondaryToolbar
+        onProjectVariables={()=>setVariablesOpen(true)}
         toolbarMode={toolbarMode}
         projectName={projectName}
         onProjectNameChange={onProjectNameChange}
@@ -20228,6 +20436,7 @@ export function LayerlingEditor({
         onStartSketch={(operation) => beginSketch(operation)}
         onEditSketch={beginSketchEdit}
         onSketchTool={chooseSketchTool}
+        onSketchText={addSketchText}
         onSketchPrimitive={(primitive) => addSketchPrimitive(primitive, { x: 0, z: 0 })}
         sketchShapeOptions={sketchShapeOptions}
         onSketchShapeOptions={setSketchShapeOptions}
@@ -20423,6 +20632,29 @@ export function LayerlingEditor({
           />
         ) : null}
         {toolbarMode === "sketch" && sketchActive ? (
+          <>
+          {selectedSketchText && sketchTool === "select" ? <SketchTextPanel
+            key={selectedSketchText.id}
+            text={selectedSketchText}
+            profile={sketchProfile}
+            onPathGuideChange={guide => {
+              const current=sketchHistoryRef.current[sketchHistoryIndexRef.current]??sketchProfile;
+              const ids=current.texts?.find(text=>text.id===selectedSketchText.id)?.pathSegmentIds;
+              if(ids)commitSketchProfile(setSketchTextPathGuide(current,ids,guide));
+            }}
+            picking={sketchTextPicking === selectedSketchText.id}
+            onPickPath={() => setSketchTextPicking(value => value ? null : selectedSketchText.id)}
+            onChange={async patch => {
+              if ((patch.stroke || patch.bridges || patch.connections) && !loadedManifoldRuntime()) {
+                try { await getManifoldRuntime(); } catch { setNotice(t("sketchText.buildError")); return; }
+              }
+              const current = sketchHistoryRef.current[sketchHistoryIndexRef.current] ?? sketchProfile;
+              const next = { ...current, texts: current.texts?.map(text => text.id === selectedSketchText.id ? { ...(Object.hasOwn(patch, "pathSegmentIds") && !patch.pathSegmentIds ? detachSketchTextPath(text, current) : text), ...patch } : text) };
+              commitSketchProfile(next);
+            }}
+            onConvert={() => { commitSketchProfile(convertSketchTextToOutlines(sketchProfile, selectedSketchText.id)); setActiveSketchTextId(null); setSketchTextPicking(null); }}
+            onClose={() => { setActiveSketchTextId(null); setSketchSelection(null); setSketchTextPicking(null); }}
+          /> : null}
           <SketchWorkspace
             profile={sketchProfile}
             operation={sketchOperation}
@@ -20437,6 +20669,7 @@ export function LayerlingEditor({
             tool={sketchTool}
             activePointId={sketchActivePointId}
             selected={sketchSelection}
+            textPathPicking={Boolean(sketchTextPicking)}
             measurement={sketchMeasurement}
             pendingMeasurementStart={sketchMeasureStart}
             initialSnap={snapGrid}
@@ -20460,10 +20693,19 @@ export function LayerlingEditor({
             onPointPress={pressSketchPoint}
             onFinishLine={() => setSketchActivePointId(null)}
             onSelectSegment={(id) => {
-              setSketchSelection({ kind: "segment", id });
+              if (sketchTextPicking) {
+                const pathSegmentIds = sketchTextPathSelection(sketchProfile, id);
+                if (!pathSegmentIds) { setNotice(t("sketchText.pathError")); return; }
+                const next = attachSketchTextPath(sketchProfile,sketchTextPicking,pathSegmentIds);
+                commitSketchProfile(next); setSketchTextPicking(null); return;
+              }
+              const text = sketchProfile.texts?.find(text => text.segmentIds.includes(id));
+              setActiveSketchTextId(text?.id ?? null);
+              setSketchSelection(text ? { kind: "multiple", pointIds: text.pointIds, segmentIds: text.segmentIds } : { kind: "segment", id });
               setSketchActivePointId(null);
             }}
             onToggleSelect={(entity) => {
+              setActiveSketchTextId(null);
               const next = toggleSketchSelection(sketchSelection, entity);
               setSketchSelection(next);
               setSketchActivePointId(null);
@@ -20473,6 +20715,16 @@ export function LayerlingEditor({
                 : count === 1 ? t("status.sketchSelectedOne") : t("status.sketchSelectedMany", { count }));
             }}
             onSelectMany={(pointIds, segmentIds, imageIds) => {
+              if (sketchTextPicking && !segmentIds.length) return;
+              if (sketchTextPicking && segmentIds.length) {
+                const pathSegmentIds = sketchTextPathSelection(sketchProfile, segmentIds[0]);
+                if (!pathSegmentIds) { setNotice(t("sketchText.pathError")); return; }
+                commitSketchProfile(attachSketchTextPath(sketchProfile,sketchTextPicking,pathSegmentIds));
+                setSketchTextPicking(null); return;
+              }
+              const owners = sketchProfile.texts?.filter(text => text.pointIds.some(id => pointIds.includes(id)) || text.segmentIds.some(id => segmentIds.includes(id))) ?? [];
+              for (const text of owners) { pointIds = [...new Set([...pointIds, ...text.pointIds])]; segmentIds = [...new Set([...segmentIds, ...text.segmentIds])]; }
+              setActiveSketchTextId(owners.length === 1 && pointIds.every(id => owners[0].pointIds.includes(id)) ? owners[0].id : null);
               setSketchSelection(pointIds.length || segmentIds.length || imageIds.length ? { kind: "multiple", pointIds, segmentIds, imageIds } : null);
               setSketchActivePointId(null);
               const count = pointIds.length + segmentIds.length + imageIds.length;
@@ -20481,6 +20733,7 @@ export function LayerlingEditor({
                 : count === 1 ? t("status.sketchSelectedOne") : t("status.sketchSelectedMany", { count }));
             }}
             onSelectImage={(id) => {
+              setActiveSketchTextId(null);
               setSketchSelection({ kind: "image", id });
               setSketchActivePointId(null);
               setNotice(t("status.sketchImageSelected"));
@@ -20512,6 +20765,7 @@ export function LayerlingEditor({
             onStraightenSegments={straightenSketchSegmentsAction}
             onStraightenSegment={straightenSketchSegmentAction}
             onSetSegmentConstruction={setSketchSegmentConstruction}
+            onSetSegmentsConstruction={setSketchSegmentsConstruction}
             onApplyFillet={applySketchFilletHandler}
             onApplyChamfer={applySketchChamferHandler}
             onClearMeasurement={clearSketchMeasurement}
@@ -20531,6 +20785,7 @@ export function LayerlingEditor({
             }}
             strokePreview={sketchStrokePreview}
           />
+          </>
         ) : (
           <WorkplaneViewport
           threadInsertPreview={threadInsertFaceCurrent && threadInsertTool?.face && threadInsertSizeSpec ? {
@@ -21590,6 +21845,8 @@ export function LayerlingEditor({
       <pre data-codex-summary hidden>
         {compactDebugState}
       </pre>
+    {variablesOpen?<ProjectVariablesPanel variables={projectVariables} shapes={shapes} onApply={applyVariableDraft} onClose={()=>setVariablesOpen(false)}/>:null}
     </div>
+    </ProjectVariablesContext.Provider>
   );
 }

@@ -1,10 +1,13 @@
 export const APP_THEME_STORAGE_KEY = "layerling.theme";
+export const DEFAULT_APP_THEME = "slime" as const;
 
 export const APP_THEME_OPTIONS = [
   { value: "system", label: "System" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
   { value: "graphite", label: "Graphite" },
+  { value: "slime", label: "Slime Time ’90s" },
+  { value: "time-machine", label: "88 MPH · Time Machine" },
 ] as const;
 
 export type AppThemePreference = (typeof APP_THEME_OPTIONS)[number]["value"];
@@ -14,27 +17,28 @@ export type AppThemePreference = (typeof APP_THEME_OPTIONS)[number]["value"];
  * dark keeps working; the palette on top only swaps colours.
  */
 export type ResolvedAppTheme = "light" | "dark";
-export type AppThemePalette = "default" | "graphite";
+export type AppThemePalette = "default" | "graphite" | "slime" | "time-machine";
 
 export function appThemePalette(preference: AppThemePreference): AppThemePalette {
-  return preference === "graphite" ? "graphite" : "default";
+  return preference === "time-machine" ? "time-machine" : preference === "graphite" ? "graphite" : preference === "slime" ? "slime" : "default";
 }
 
 export function normalizeAppThemePreference(value: unknown): AppThemePreference {
-  return value === "light" || value === "dark" || value === "graphite" || value === "system" ? value : "system";
+  return value === "light" || value === "dark" || value === "graphite" || value === "slime" || value === "time-machine" || value === "system" ? value : "system";
 }
 
 export function resolveAppTheme(preference: AppThemePreference, prefersDark: boolean): ResolvedAppTheme {
   if (preference === "system") return prefersDark ? "dark" : "light";
-  return preference === "graphite" ? "dark" : preference;
+  return preference === "time-machine" || preference === "graphite" ? "dark" : preference === "slime" ? "light" : preference;
 }
 
 export function readStoredAppTheme(storage: Pick<Storage, "getItem"> | null | undefined): AppThemePreference {
-  if (!storage) return "system";
+  if (!storage) return DEFAULT_APP_THEME;
   try {
-    return normalizeAppThemePreference(storage.getItem(APP_THEME_STORAGE_KEY));
+    const stored = storage.getItem(APP_THEME_STORAGE_KEY);
+    return stored === null ? DEFAULT_APP_THEME : normalizeAppThemePreference(stored);
   } catch {
-    return "system";
+    return DEFAULT_APP_THEME;
   }
 }
 
@@ -101,7 +105,7 @@ function ensureGraphiteStylesheet() {
 
 const themeListeners = new Set<() => void>();
 let currentThemePreference: AppThemePreference =
-  typeof window !== "undefined" ? readStoredAppTheme(window.localStorage) : "system";
+  typeof window !== "undefined" ? readStoredAppTheme(window.localStorage) : DEFAULT_APP_THEME;
 
 if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
   const media = window.matchMedia("(prefers-color-scheme: dark)");

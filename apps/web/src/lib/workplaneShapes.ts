@@ -930,6 +930,8 @@ export function workplaneShapesEqual(a: WorkplaneShape, b: WorkplaneShape) {
     gridfinityOutlinesEqual(a.gridfinityOutline, b.gridfinityOutline) &&
     a.dovetailNeckWidth === b.dovetailNeckWidth &&
     a.dovetailClearance === b.dovetailClearance &&
+    JSON.stringify(a.loftBottomSvg ?? null) === JSON.stringify(b.loftBottomSvg ?? null) &&
+    JSON.stringify(a.loftTopSvg ?? null) === JSON.stringify(b.loftTopSvg ?? null) &&
     a.loftBottomOutline === b.loftBottomOutline &&
     a.loftTopOutline === b.loftTopOutline &&
     a.loftBottomWidth === b.loftBottomWidth &&
@@ -1042,6 +1044,7 @@ export function workplaneShapesEqual(a: WorkplaneShape, b: WorkplaneShape) {
     Boolean(a.breakawayBase) === Boolean(b.breakawayBase) &&
     a.rotationPivot === b.rotationPivot &&
     fieldFormulasEqual(a.formulas, b.formulas) &&
+    JSON.stringify(a.parameterBindings??null) === JSON.stringify(b.parameterBindings??null) &&
     a.locked === b.locked &&
     Boolean(a.shapeLocked) === Boolean(b.shapeLocked) &&
     a.hidden === b.hidden &&

@@ -86,3 +86,18 @@ describe("workplane grid geometry", () => {
     expect(workplaneThemePalette("light", "#f8fbfc", undefined, "graphite")).toEqual(workplaneThemePalette("light", "#f8fbfc"));
   });
 });
+
+it('uses a calm lavender modeling surface for Slime Time without changing grid geometry',()=>{
+ const palette=workplaneThemePalette('light','#ffffff',undefined,'slime');
+ expect(palette.sceneBackground).toBe('#ece3fa');expect(palette.surface.color).toBe('#faf5ff');
+ expect(palette.grid.major.color).toBe('#59318b');expect(palette.grid.minor.opacity).toBeLessThan(.3);
+});
+
+it("uses the time-machine cyan grid while respecting custom grid colours", () => {
+  const palette = workplaneThemePalette("dark", "#ffffff", undefined, "time-machine");
+  expect(palette.sceneBackground).toBe("#080f1b");
+  expect(palette.surface.color).toBe("#122337");
+  expect(palette.grid.major.color).toBe("#47b5ca");
+  expect(palette.grid.minor.opacity).toBeLessThan(palette.grid.major.opacity);
+  expect(workplaneGridPalette("dark", "#c23b72", "time-machine").minor.color).toBe("#c23b72");
+});

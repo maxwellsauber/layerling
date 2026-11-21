@@ -115,8 +115,8 @@ export function formatFractionalInches(inches: number) {
  * and `\u00f7` too. A decimal comma counts like a point. Read by hand - no eval - and NaN for
  * anything that is not a plain sum of numbers.
  */
-export function evaluateArithmetic(text: string) {
-  const source = text.replace(/[\s\u00a0]/g, "").replace(/,/g, ".").replace(/[\u00d7xX]/g, "*").replace(/\u00f7/g, "/").replace(/[\u2212\u2013]/g, "-");
+export function evaluateArithmetic(text: string, resolve?: (name:string)=>number) {
+  const source = text.replace(/[\s\u00a0]/g, "").replace(/,/g, ".").replace(resolve ? /[\u00d7]/g : /[\u00d7xX]/g, "*").replace(/\u00f7/g, "/").replace(/[\u2212\u2013]/g, "-");
   let index = 0;
   const peek = () => source[index];
   const number = (): number => {
@@ -140,6 +140,10 @@ export function evaluateArithmetic(text: string) {
       if (peek() !== ")") return Number.NaN;
       index += 1;
       return value;
+    }
+    if(resolve) {
+      const identifier=/^[A-Za-z_][A-Za-z0-9_]*/.exec(source.slice(index));
+      if(identifier){index+=identifier[0].length;return resolve(identifier[0]);}
     }
     return number();
   };

@@ -49,16 +49,14 @@ import { reportBugReportError } from "@/lib/bugReport";
 import { leaveGuardReleased, provideDesignSaveState } from "@/lib/leaveGuard";
 import { GuideHelpLink } from "@/components/GuideHelpLink";
 import { WelcomeGuideBody } from "@/components/WelcomeGuide";
+import { DemoBrandLabel } from "@/components/DemoBrandLabel";
 import { DashboardWelcome, useWelcomeHidden } from "@/components/DashboardWelcome";
 import { BrowserBackupNote, DesignTabs, YourBackupCard, type DesignTab } from "@/components/DesignTabs";
 import { useOfflineAvailable } from "@/lib/offlineSupport";
 import { InstallAppHint } from "@/components/InstallAppHint";
 import { TabletHint } from "@/components/TabletHint";
-import { WhatsNewCard } from "@/components/WhatsNewCard";
-import { AnnouncementCard } from "@/components/AnnouncementCard";
+import { DemoExampleGallery } from "@/components/DemoExampleGallery";
 import { UpdatePreview } from "@/components/UpdatePreview";
-import { useWhatsNew } from "@/lib/useWhatsNew";
-import { useAnnouncements } from "@/lib/useAnnouncements";
 import { TabPresenceNotice } from "@/components/TabPresenceNotice";
 import { SafeModeErrorBoundary } from "@/components/SafeModeErrorBoundary";
 import { duplicateName, type DuplicateNamePatterns } from "@/lib/duplicateName";
@@ -1854,7 +1852,7 @@ export default function Home() {
     openEditor(project.id, { allowMissingFromStorage: true });
   };
 
-  const openLylProjectFromFile = useCallback(async (file: File, sharedProject?: SharedProject, fileHandle?: LylFileHandle, options?: { name?: string; onSlow?: (message: string) => void }) => {
+  const openLylProjectFromFile = useCallback(async (file: File, sharedProject?: SharedProject, fileHandle?: LylFileHandle, options?: { name?: string; onSlow?: (message: string) => void; browserOnly?: boolean }) => {
     setDashboardNotice(t("notice.validatingFile", { name: file.name }));
     // An opening that does not end said nothing at all: "Validating …" stayed and nothing came (#1639). After a while
     // the notice says which step it is on, and so does the bug report, whose last messages are these.
@@ -1866,6 +1864,7 @@ export default function Home() {
       setDashboardNotice(message);
       options?.onSlow?.(message);
     }, OPENING_SLOW_NOTICE_MS);
+    let exampleProjectId: string | undefined;
     try {
       const bytes = await file.arrayBuffer();
       step = 2;
@@ -1883,7 +1882,7 @@ export default function Home() {
         // Dateiname, und eine Kopie traegt den des Originals im Paket, bis der
         // erste Speicherlauf ihn nachzieht.
         // A backup opened from "Earlier versions" comes with a name that says which one it is.
-        ...(existing ?? newProject(sharedProject?.name ?? options?.name ?? restored.projectName, projects.length, restored.shapes.length, sharedProject ? null : openFolderId)),
+        ...(existing ?? newProject(sharedProject?.name ?? options?.name ?? restored.projectName, projects.length, restored.shapes.length, sharedProject || options?.browserOnly ? null : openFolderId)),
         createdAt: restored.createdAt,
         updatedAt: now,
         revision: now,
@@ -1895,11 +1894,12 @@ export default function Home() {
         sketchPlacementWorkplane: restored.sketchPlacementWorkplane,
         sharedProject: sharedProject ? { fileName: sharedProject.fileName, revision: sharedProject.revision, path: sharedProject.path ?? "" } : undefined,
       };
+      if (options?.browserOnly) exampleProjectId = project.id;
       const entry = projectShapeCacheEntry(now, restored.shapes, restored.history, restored.historyIndex, restored.assets, restored.attachments);
       await saveProjectShapes(project.id, entry, projectShapeSaveContext(project));
       step = 4;
       // A file opened as a new design goes where new designs go; a server design is there already.
-      const { project: placed, problem } = sharedProject || existing ? { project } : await placeNewDesignRef.current(project);
+      const { project: placed, problem } = sharedProject || existing || options?.browserOnly ? { project } : await placeNewDesignRef.current(project);
       if (placed.sharedProject && !sharedProject) void refreshSharedProjects();
       // A file saved with a view opens in it; the working copy of a server design keeps its own.
       if (restored.view && !existing) writeDesignView(project.id, restored.view);
@@ -1924,6 +1924,7 @@ export default function Home() {
       openEditor(project.id, { allowMissingFromStorage: true });
       return { ok: true, message };
     } catch (error) {
+      if (exampleProjectId) await deleteProjectShapes(exampleProjectId).catch(() => undefined);
       const message = error instanceof Error ? localizedError(error.message) : "Could not open layerling project";
       setDashboardNotice(message);
       return { ok: false, message };
@@ -3301,6 +3302,7 @@ export default function Home() {
           onRestoreBackup={() => backupRestoreInputRef.current?.click()}
           openingSharedKey={openingSharedKey}
           onOpenSharedProject={(project) => void openSharedProject(project)}
+          onOpenExample={(file, name) => openLylProjectFromFile(file, undefined, undefined, { name, browserOnly: true })}
           onOpenProject={openEditor}
           onQueryChange={setQuery}
           onRenameProject={renameProject}
@@ -3582,6 +3584,7 @@ function Dashboard({
   onSendAllToServer,
   onSendFolderToServer,
   onOpenSharedProject,
+  onOpenExample,
   onOpenProject,
   onQueryChange,
   onRenameProject,
@@ -3660,6 +3663,7 @@ function Dashboard({
   onSendAllToServer: () => void;
   onSendFolderToServer: (folderId: string) => void;
   onOpenSharedProject: (project: SharedProject) => void;
+  onOpenExample: (file: File, name: string) => Promise<{ ok: boolean; message: string }>;
   onOpenProject: (projectId: string) => void;
   onQueryChange: (value: string) => void;
   onRenameProject: (projectId: string, name: string) => void;
@@ -3687,8 +3691,6 @@ function Dashboard({
   const activeSection: DashboardSection = !sharedProjectsEnabled ? "home" : showBrowserTab ? dashboardSection : "shared";
   const offlineOk = useOfflineAvailable();
   const { update, isDismissed, dismiss: dismissUpdate } = useAppUpdate(LYL_CREATED_WITH_VERSION);
-  const whatsNew = useWhatsNew(LYL_CREATED_WITH_VERSION);
-  const announcements = useAnnouncements();
   const simpleMode = useSimpleMode();
   const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
   const [openSharedProjectMenuKey, setOpenSharedProjectMenuKey] = useState<string | null>(null);
@@ -4000,7 +4002,7 @@ function Dashboard({
     closeProjectRename();
   };
 
-  const welcome = useWelcomeHidden();
+  const welcome = useWelcomeHidden(true);
   // Brought back from the footer: open, and scrolled into view.
   const [welcomeReopened, setWelcomeReopened] = useState(false);
   const showWelcome = () => {
@@ -4070,7 +4072,7 @@ function Dashboard({
           <img src="/assets/layerling/layerling-logo.svg" alt="" />
           <span className="dashboard-brand-text">
             <span className="dashboard-brand-name">layerling</span>
-            <span className="dashboard-tagline">{t("brand.tagline")}</span>
+            <DemoBrandLabel />
           </span>
         </a>
         <div className="dashboard-search">
@@ -4148,8 +4150,7 @@ function Dashboard({
               ) : null}
             </div>
           ) : null}
-          {announcements.shown && !simpleMode ? <AnnouncementCard announcement={announcements.shown} reveal={announcements.reopened} onClose={announcements.close} /> : null}
-          {whatsNew.view && !simpleMode ? <WhatsNewCard view={whatsNew.view} current={LYL_CREATED_WITH_VERSION} onClose={whatsNew.dismiss} /> : null}
+          <DemoExampleGallery onOpen={onOpenExample} />
           {simpleMode ? null : <InstallAppHint />}
           {simpleMode ? null : <TabletHint />}
           <DesignTabs tabs={designTabs} active={activeSection} onSelect={onSelectSection}>
@@ -4905,7 +4906,8 @@ function Dashboard({
               ) : null}
             </>
           )}
-          <AppFooter version={LYL_CREATED_WITH_VERSION} updateInfo={update} onShowWelcome={welcome.hidden && !simpleMode ? showWelcome : undefined} onShowAnnouncement={announcements.closedButActive && !simpleMode ? announcements.reopen : undefined} />
+          <DemoExampleGallery compact onOpen={onOpenExample} />
+          <AppFooter version={LYL_CREATED_WITH_VERSION} updateInfo={update} onShowWelcome={welcome.hidden && !simpleMode ? showWelcome : undefined} />
         </section>
       </div>
 

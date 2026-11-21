@@ -57,7 +57,7 @@ export function orderedCadSketchPaths(profile: SketchProfile): OrderedCadSketchP
   return paths;
 }
 
-function sampledPath(path: OrderedCadSketchPath) {
+export function sampledPath(path: OrderedCadSketchPath, divisions = 16) {
   const samples: Array<{ x: number; z: number }> = [];
   path.steps.forEach(({ segment, from, to }, stepIndex) => {
     if (stepIndex === 0) samples.push({ x: from.x, z: from.z });
@@ -68,8 +68,8 @@ function sampledPath(path: OrderedCadSketchPath) {
       samples.push({ x: to.x, z: to.z });
       return;
     }
-    for (let index = 1; index <= 16; index += 1) {
-      const amount = index / 16;
+    for (let index = 1; index <= divisions; index += 1) {
+      const amount = index / divisions;
       const inverse = 1 - amount;
       samples.push({
         x: inverse ** 3 * from.x + 3 * inverse ** 2 * amount * first.x + 3 * inverse * amount ** 2 * second.x + amount ** 3 * to.x,

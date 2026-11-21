@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { ProjectVariablesContext } from "@/components/workplane/ProjectVariablesContext";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -90,6 +91,16 @@ describe("constraint inspector", () => {
     expect([...rows].every(row=>row.getAttribute('aria-pressed')==="true")).toBe(true);
     act(()=>container.querySelector<HTMLButtonElement>('[aria-label="Delete constraint"]')!.click());
     expect(props.onDelete).toHaveBeenCalledWith("first");expect(props.onClose).toHaveBeenCalled();
+  });
+
+  it("stores a named dimension expression and reports unknown names without changing geometry",()=>{
+    const onUpdate=vi.fn(()=>true);
+    act(()=>root.render(createElement(ProjectVariablesContext.Provider,{value:{variables:[{id:"wall-id",name:"wall",expression:"6",refs:{}}]}},
+      createElement(SketchConstraintInspector,{rule,profile,onUpdate,onClose:vi.fn()}))));
+    setValue("wall * 2");submit();
+    expect(onUpdate).toHaveBeenCalledWith("dimension",12,{expression:"wall * 2",refs:{wall:"wall-id"}});
+    onUpdate.mockClear();setValue("WALL");submit();
+    expect(onUpdate).not.toHaveBeenCalled();expect(container.querySelector('[role="alert"]')?.textContent).toContain('WALL');
   });
 
   it("shows affected geometry and updates the existing constraint by ID", () => {

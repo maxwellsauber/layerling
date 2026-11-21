@@ -1,0 +1,66 @@
+[
+  {
+    "id": "bend-the-words",
+    "title": "Bend the words",
+    "description": "Live sketch text follows an editable curve. Change the wording or reshape the baseline; the letters follow.",
+    "features": [
+      "Native sketch text",
+      "Text on path",
+      "Construction baseline"
+    ],
+    "tryThis": "Double-click the lettering, select the text, then edit its words or drag a curve handle.",
+    "project": "features/bend-the-words.lyl",
+    "thumbnail": "features/bend-the-words.jpg"
+  },
+  {
+    "id": "circular-badge",
+    "title": "Make a circular badge",
+    "description": "Readable lettering along the bottom of a circle. Its construction guide shapes the words without becoming a solid disk.",
+    "features": [
+      "Closed paths",
+      "Reading direction",
+      "Guide-only baseline"
+    ],
+    "tryThis": "Double-click the lettering and drag the circle’s points, or move the text with its position slider.",
+    "project": "features/circular-badge.lyl",
+    "thumbnail": "features/circular-badge.jpg"
+  },
+  {
+    "id": "stencil-open",
+    "title": "Keep your stencil together",
+    "description": "A real OPEN stencil with bridges connecting the enclosed letter centers to the plate.",
+    "features": [
+      "Stencil bridges",
+      "Editable cutout lettering"
+    ],
+    "tryThis": "Double-click the stencil, select OPEN, and change the bridge width or the wording.",
+    "project": "features/stencil-open.lyl",
+    "thumbnail": "features/stencil-open.jpg"
+  },
+  {
+    "id": "connected-nameplate",
+    "title": "Print the whole word",
+    "description": "Raised letters share a thin, connected backer. The lettering stays editable and the result is one fused part.",
+    "features": [
+      "Connected lettering",
+      "Outline backer",
+      "Raised letter height"
+    ],
+    "tryThis": "Double-click MAX to edit it. In 3D properties, change the backer thickness or raised-letter height.",
+    "project": "features/connected-nameplate.lyl",
+    "thumbnail": "features/connected-nameplate.jpg"
+  },
+  {
+    "id": "svg-section-loft",
+    "title": "Build between shapes",
+    "description": "A square base flows through a hexagon into an SVG heart. Each section has its own shape, size, and height.",
+    "features": [
+      "SVG profiles",
+      "Section layers",
+      "Editable loft"
+    ],
+    "tryThis": "Select the loft and expand Section layers. Change the middle polygon’s sides or drag a section into a new order.",
+    "project": "features/svg-section-loft.lyl",
+    "thumbnail": "features/svg-section-loft.jpg"
+  }
+]

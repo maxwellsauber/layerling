@@ -11,15 +11,16 @@ const HIDDEN_KEY = "layerling.welcomeHidden";
  * Whether the welcome guide was closed with its cross. Remembered in this browser; null until it
  * has been read, so neither the guide nor the footer link to bring it back flashes up on load.
  */
-export function useWelcomeHidden() {
+export function useWelcomeHidden(defaultHidden = false) {
   const [hidden, setHidden] = useState<boolean | null>(null);
   useEffect(() => {
     try {
-      setHidden(window.localStorage.getItem(HIDDEN_KEY) === "1");
+      const stored = window.localStorage.getItem(HIDDEN_KEY);
+      setHidden(stored === null ? defaultHidden : stored === "1");
     } catch {
-      setHidden(false);
+      setHidden(defaultHidden);
     }
-  }, []);
+  }, [defaultHidden]);
   const store = useCallback((value: boolean) => {
     setHidden(value);
     try {

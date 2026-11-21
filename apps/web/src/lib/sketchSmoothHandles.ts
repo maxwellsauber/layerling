@@ -2,6 +2,7 @@ import type { SketchPoint, SketchProfile } from "@/types/layerling";
 
 export function cloneSketchProfile(profile: SketchProfile): SketchProfile {
   return {
+    ...(profile.texts ? { texts: structuredClone(profile.texts) } : {}),
     points: profile.points.map((point) => ({
       ...point,
       handleIn: point.handleIn ? { ...point.handleIn } : undefined,

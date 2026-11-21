@@ -1,0 +1,85 @@
+/* 88 MPH: static time-circuit accents around a quiet, readable CAD workplane. */
+html[data-palette="time-machine"] {
+  --background:#080f1b; --foreground:#e4f5ff; --topbar:#162637; --subbar:#101e2d;
+  --panel:#17293b; --surface:#17293b; --tile:#1b3044; --tile-hover:#24475d;
+  --border:#375469; --border-strong:#6c9bad; --border-color:#375469;
+  --muted:#30495b; --muted-strong:#a7c6d7; --primary:#ff9c38; --accent:#ff9c38;
+  --active-tab:#ff9c38; --nav-text:#d4f4ff; --workplane:#47b5ca;
+  --workplane-soft:rgba(71,181,202,.13); --shadow:0 8px 24px #0006;
+  --toolbar-bg:#142434; --toolbar-edge:#527489; --toolbar-divider:#456175;
+  --toolbar-label:#a8ddec; --toolbar-icon:#d4f4ff; --toolbar-tile:#1b3044;
+  --toolbar-icon-disabled:#647d8d; --toolbar-hover-bg:#28495d; --toolbar-hover-ring:#68e5ff;
+}
+html[data-palette="time-machine"] :is(button,a,input,select,textarea):focus-visible {outline:3px solid #68e5ff;outline-offset:3px;}
+html[data-palette="time-machine"] :is(.dashboard-topbar,.toolbar-title-row) {
+  background:linear-gradient(115deg,#152536 65%,#2c455a 90%,#152536);
+  border-bottom:3px solid #ff9c38;box-shadow:0 2px 0 #58d8ff;
+}
+html[data-palette="time-machine"] :is(.dashboard-brand-name,.toolbar-brand-name) {
+  color:#ffcd57;font-family:"Arial Black",Impact,sans-serif;font-style:italic;font-weight:950;
+  text-shadow:1px 2px 0 #d74416,3px 3px 0 #07101d;
+}
+html[data-palette="time-machine"] :is(.toolbar-brand-tagline,.dashboard-brand-tagline) {color:#b4d8ea;}
+html[data-palette="time-machine"] :is(.toolbar-title-home,.theme-switch-button,.language-switch-button,.toolbar-title-help) {
+  background:#102032;color:#8eeaff;border:1px solid #6b9cad;border-radius:6px;
+}
+html[data-palette="time-machine"] :is(.theme-dropdown-menu,.language-dropdown-menu,.sketch-point-actions,.shape-inspector,.sketch-text-panel,.sketch-shape-menu,.modal-content) {
+  background:#17293b;color:#e4f5ff;border:1px solid #6c9bad;border-radius:8px;box-shadow:0 8px 24px #0007;
+}
+html[data-palette="time-machine"] .theme-dropdown-item {color:#e4f5ff;}
+html[data-palette="time-machine"] .theme-dropdown-item:is(.active,:hover,:focus-visible) {background:#28495d;color:#a4f0ff;}
+html[data-palette="time-machine"] .theme-check {color:#ffad48;}
+html[data-palette="time-machine"] .secondary-toolbar {background:#101e2d;border-bottom:2px solid #527489;}
+html[data-palette="time-machine"] .toolbar-workspace-tabs button {color:#b4d8ea;}
+html[data-palette="time-machine"] .toolbar-workspace-tabs button[aria-selected="true"] {color:#ffcd57;background:#20384d;border-bottom-color:#ff9c38;}
+html[data-palette="time-machine"] .toolbar-section-tools {background:#172b3d;border-color:#63879a;border-radius:6px;box-shadow:inset 0 1px 0 #ffffff20;}
+html[data-palette="time-machine"] .toolbar-section-label {color:#9deaff;letter-spacing:.08em;}
+html[data-palette="time-machine"] .toolbar-icon.active {color:#07101d;background:#ffad48;}
+html[data-palette="time-machine"] .sketch-reference-icon {filter:grayscale(1) brightness(0) invert(.9);}
+html[data-palette="time-machine"] :is(.shape-inspector,.sketch-text-panel,.sketch-point-actions) :is(input:not([type=checkbox]):not([type=range]),select,textarea) {
+  background:#091725;color:#e4f5ff;border:1px solid #6c9bad;border-radius:5px;
+}
+html[data-palette="time-machine"] :is(.shape-inspector,.sketch-text-panel) input[type=number] {font-family:ui-monospace,Menlo,monospace;color:#ffce73;}
+html[data-palette="time-machine"] :is(.shape-inspector,.sketch-text-panel) :is(h2,h3,strong,legend,label) {color:#d4f4ff;}
+html[data-palette="time-machine"] .sketch-text-panel fieldset {background:#102032;border-color:#4c8196;}
+html[data-palette="time-machine"] :is(.sketch-text-panel,.sketch-point-actions) button {background:#203c50;color:#d4f4ff;border-color:#6c9bad;}
+html[data-palette="time-machine"] :is(.sketch-text-panel,.shape-inspector) input {accent-color:#ff9c38;}
+html[data-palette="time-machine"] .sketch-point-actions button:is(.active,[aria-pressed="true"]) {background:#ffad48;color:#07101d;}
+html[data-palette="time-machine"] .sketch-board {background:#080f1b;}
+html[data-palette="time-machine"] .sketch-plate-background {fill:#122337;}
+html[data-palette="time-machine"] .sketch-plate-border {stroke:#47b5ca;}
+html[data-palette="time-machine"] .sketch-grid .minor {stroke:#2483984d;}
+html[data-palette="time-machine"] .sketch-grid .major {stroke:#47b5ca85;}
+html[data-palette="time-machine"] .sketch-grid .axis {stroke:#9aeaff;}
+html[data-palette="time-machine"] .dashboard-shell {
+  background-color:#080f1b;
+  background-image:linear-gradient(#1e425344 1px,transparent 1px),linear-gradient(90deg,#1e425344 1px,transparent 1px);
+  background-size:48px 48px;
+}
+html[data-palette="time-machine"] :is(.dashboard-main,.dashboard-layout) {background:transparent;}
+html[data-palette="time-machine"] .demo-gallery {background:#122337;border:1px solid #527489;border-top:4px solid #ff9c38;border-radius:10px;}
+html[data-palette="time-machine"] .demo-gallery h2 {color:#ffcd57;font-family:"Arial Black",Impact,sans-serif;font-style:italic;letter-spacing:-.03em;}
+html[data-palette="time-machine"] .demo-example-category>h3 {color:#99ecff;font-family:ui-monospace,Menlo,monospace;letter-spacing:.05em;}
+html[data-palette="time-machine"] .demo-example-card {background:#1b3044;border:1px solid #527489;border-radius:8px;box-shadow:0 5px 14px #0004;}
+html[data-palette="time-machine"] .demo-example-card h4 {color:#e4f5ff;}
+html[data-palette="time-machine"] .demo-example-card button {background:#ffad48;color:#101923;border:1px solid #ffce73;font-weight:850;border-radius:5px;}
+html[data-palette="time-machine"] .demo-example-card button:hover:not(:disabled) {background:#ffce73;}
+html[data-palette="time-machine"] .demo-example-featured .demo-example-card {background:#20384d;border-color:#ffad48;}
+html[data-palette="time-machine"] :is(.dashboard-action-tile,.project-card,.dashboard-project-card) {background:#17293b;color:#e4f5ff;border:1px solid #527489;}
+html[data-palette="time-machine"] :is(.dashboard-section-title,.dashboard-section-header h2) {color:#a4f0ff;}
+html[data-palette="time-machine"] :is(.editor-footer,.dashboard-legal) {
+  color:#b4d8ea;background:#101e2d;border-top:3px solid transparent;
+  border-image:linear-gradient(90deg,#ff6849 0 33%,#ffcd57 33% 66%,#62e79c 66%) 1;
+}
+html[data-palette="time-machine"] :is(.editor-footer,.dashboard-legal) :is(a,button) {color:#9aeaff;}
+html[data-palette="time-machine"] .dashboard-topbar .dashboard-search {background:#091725;border-color:#527489;color:#b4d8ea;}
+html[data-palette="time-machine"] .dashboard-topbar .dashboard-search input {color:#e4f5ff;}
+html[data-palette="time-machine"] .toolbar-project-name-field input {background:#091725;color:#e4f5ff;border-color:#527489;}
+html[data-palette="time-machine"] :is(.shape-menu-dropdown,.visibility-dropdown,.top-action-panel,.edge-modifier-panel,.split-panel,.camera-controls,.tape-tool-popover,.section-tool-popover,.snap-menu) {
+  color:#e4f5ff;background:#17293bf7;border-color:#527489;box-shadow:0 8px 24px #0006;
+}
+html[data-palette="time-machine"] :is(.camera-controls,.snap-menu,.action-buttons) button {color:#d4f4ff;background:#17293b;border-color:#527489;}
+html[data-palette="time-machine"] .camera-controls button:hover {background:#28495d;}
+html[data-palette="time-machine"] .camera-controls button:is(.active,[aria-pressed="true"]) {background:#ffad48;color:#07101d;}
+html[data-palette="time-machine"] :is(.shape-menu-item,.top-action-body button) {color:#e4f5ff;background:#20384c;border-color:#527489;}
+html[data-palette="time-machine"] :is(.shape-menu-title,.export-action-panel header,.import-action-panel header) {color:#99ecff;background:#102032;border-color:#527489;}

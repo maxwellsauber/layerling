@@ -1,3 +1,4 @@
+import type { ParameterBindings, VariableExpression } from "@/lib/projectVariables";
 export type ShapeKind =
   | "box"
   | "roundedBox"
@@ -444,8 +445,10 @@ export type ShapeCustomization = {
   /** Dovetail: gap in mm added on every side when the dovetail is a cut-out (its socket). */
   dovetailClearance?: number;
   /** Transition (loft, #188): the outline at the bottom and at the top. */
-  loftBottomOutline?: "round" | "rectangle" | "polygon";
-  loftTopOutline?: "round" | "rectangle" | "polygon";
+  loftBottomOutline?: "round" | "rectangle" | "polygon" | "svg";
+  loftBottomSvg?: LoftSvgProfile;
+  loftTopOutline?: "round" | "rectangle" | "polygon" | "svg";
+  loftTopSvg?: LoftSvgProfile;
   /** Transition: the size of each end in mm, as set; the frame stretches them when it is dragged. */
   loftBottomWidth?: number;
   loftBottomDepth?: number;
@@ -766,7 +769,7 @@ export type SketchNote = { id: string; text: string; x: number; z: number; colla
  * signed offsets are measured from point a to point b. */
 /** frameX is the unit X direction of the sketch at the time the rule was made.
  * Missing means {x:1,z:0}; editing a rotated body preserves these axes. */
-export type SketchConstraintInput =
+type SketchConstraintGeometry =
   | { kind: "midpoint"; a: string; b: string; c: string; frameX?: undefined }
   | { kind: "point-on-line"; a: string; b: string; c: string; frameX?: undefined }
   // a/b are the first reflected pair; an optional second pair defines segment symmetry.
@@ -782,7 +785,8 @@ export type SketchConstraintInput =
   | { kind: "parallel" | "perpendicular" | "equal-length"; a: string; b: string; c: string; d: string; frameX?: undefined }
   | { kind: "horizontal" | "vertical" | "coincident"; a: string; b: string; frameX?: { x: number; z: number } }
   | { kind: "distance" | "offset-x" | "offset-z"; a: string; b: string; value: number; frameX?: { x: number; z: number } };
-export type SketchConstraint = SketchConstraintInput & { id: string; relationshipId?: string };
+export type SketchConstraintInput = SketchConstraintGeometry & { dimensionBinding?: VariableExpression };
+export type SketchConstraint = SketchConstraintInput & { id: string; relationshipId?: string; dimensionBinding?: VariableExpression };
 
 /** A derived path. Positive distance is outward for loops and left of an open path. */
 export type SketchOffset = {
@@ -797,7 +801,27 @@ export type SketchOffset = {
   hidden?: boolean;
 };
 
+/** Live vector lettering; generated contour IDs are owned until explicitly converted. */
+export type SketchText = {
+  id: string; content: string; font: string; size: number; spacing: number; kerning: boolean;
+  letterWidth: number; vertical: boolean; lineGap: number;
+  align: "start" | "center" | "end";
+  matrix: [number, number, number, number, number, number];
+  pathSegmentIds?: string[];
+  pathPosition?: number; // Baseline start as a percentage of total path length.
+  startOffset: number; baselineOffset: number; reverse: boolean; flip: boolean; upright: boolean; fit: boolean;
+  stroke?: SketchStroke; silhouette?: boolean;
+  bridges?: {width:number;count:number};
+  bridgeUnheld?: number;
+  connections?: {mode:"join"|"rail"|"backer";width:number;padding:number;railOffset:number};
+  connectionParts?: number;
+  raised?: {backerThickness:number;letterHeight:number};
+  pointIds: string[]; segmentIds: string[];
+  warning?: "overflow" | "missing-path";
+};
+
 export type SketchProfile = {
+  texts?: SketchText[];
   offsets?: SketchOffset[];
   points: SketchPoint[];
   /** Relations kept with the sketch, including its undo history and saved body. */
@@ -1060,10 +1084,13 @@ export type CadPrimitiveFrame = {
 export type TextEdge = { kind: "round" | "chamfer"; size: number };
 
 /** A section of a transition between its bottom and its top (#1034). */
+export type LoftSvgProfile = { name: string; points: Array<{ x: number; z: number }>; sketchId?: string };
+
 export type LoftMiddleSection = {
   /** Where it stands, as a share of the height from the bottom, 0 to 1. */
   at: number;
-  outline: "round" | "rectangle" | "polygon";
+  outline: "round" | "rectangle" | "polygon" | "svg";
+  svg?: LoftSvgProfile;
   width: number;
   depth: number;
   /** Corner rounding of a rectangle, in mm. */
@@ -1474,8 +1501,10 @@ export type WorkplaneShape = {
   /** Dovetail: gap in mm added on every side when the dovetail is a cut-out (its socket). */
   dovetailClearance?: number;
   /** Transition (loft, #188): the outline at the bottom and at the top. */
-  loftBottomOutline?: "round" | "rectangle" | "polygon";
-  loftTopOutline?: "round" | "rectangle" | "polygon";
+  loftBottomOutline?: "round" | "rectangle" | "polygon" | "svg";
+  loftBottomSvg?: LoftSvgProfile;
+  loftTopOutline?: "round" | "rectangle" | "polygon" | "svg";
+  loftTopSvg?: LoftSvgProfile;
   /** Transition: the size of each end in mm, as set; the frame stretches them when it is dragged. */
   loftBottomWidth?: number;
   loftBottomDepth?: number;
@@ -1777,6 +1806,7 @@ export type WorkplaneShape = {
    * lib/fieldFormulas.
    */
   formulas?: Record<string, string>;
+  parameterBindings?: ParameterBindings;
   /**
    * A group shows each part in its own colour, like the usual "Multicolor".
    * Left out, see groupShowsPartColors() for what a group shows.

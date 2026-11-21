@@ -476,6 +476,7 @@ export type EditingRotation = {
 } | null;
 
 export type TransformOverlayProps = {
+  dimensionExpression?: (axis: DimensionMark["axis"]) => string | undefined;
   box: TransformOverlayState;
   measureKey: string | null;
   editingDimension: EditingDimension;

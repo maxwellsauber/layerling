@@ -703,8 +703,8 @@ export function withSketchConstraint(profile: SketchProfile, rule: SketchConstra
       return entry.kind === "distance" && sameSketchEndpoints(entry.a, entry.b, rule.a, rule.b);
     });
     if (existing && "value" in existing) {
-      if (existing.value === rule.value) return profile;
-      return { ...profile, constraints: constraints.map((entry) => entry === existing ? { ...existing, value: rule.value } : entry) };
+      if (existing.value === rule.value && JSON.stringify(existing.dimensionBinding)===JSON.stringify(rule.dimensionBinding)) return profile;
+      return { ...profile, constraints: constraints.map((entry) => entry === existing ? { ...existing, value: rule.value, dimensionBinding: rule.dimensionBinding } : entry) };
     }
   }
   if (rule.kind === "concentric" && rule.radialGap !== undefined) {
@@ -712,7 +712,7 @@ export function withSketchConstraint(profile: SketchProfile, rule: SketchConstra
       rule.circles.every((ids) => entry.circles.some((other) => ids.every((id) => other.includes(id)))));
     if (existing?.kind === "concentric") {
       const radialGap = existing.circles[0].includes(rule.a) ? rule.radialGap : -rule.radialGap;
-      return { ...profile, constraints: constraints.map((entry) => entry.id === existing.id ? { ...existing, radialGap } : entry) };
+      return { ...profile, constraints: constraints.map((entry) => entry.id === existing.id ? { ...existing, radialGap, dimensionBinding: rule.dimensionBinding } : entry) };
     }
   }
   if (constraints.some((existing) => {

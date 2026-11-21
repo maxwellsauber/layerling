@@ -21,6 +21,19 @@ const square: SketchProfile = {
 };
 
 describe("construction lines (#229)", () => {
+  it("toggles a mixed whole-path selection together without changing curves, points or unrelated segments",()=>{
+    const source:SketchProfile={...square,segments:square.segments.map(s=>s.id==='ab'?{...s,kind:'smooth',construction:true}:s)};
+    const ids=new Set(['ab','bc','cd','da']);
+    const guide=withSegmentsConstruction(source,ids,true);
+    expect(guide.segments.filter(s=>ids.has(s.id)).every(s=>s.construction)).toBe(true);
+    const solid=withSegmentsConstruction(guide,ids,false);
+    expect(solid.segments.filter(s=>ids.has(s.id)).every(s=>!s.construction)).toBe(true);
+    expect(solid.segments.find(s=>s.id==='ab')!.kind).toBe('smooth');
+    expect(solid.points).toBe(source.points);
+    expect(solid.segments.filter(s=>!ids.has(s.id))).toEqual(source.segments.filter(s=>!ids.has(s.id)));
+    expect(source.segments[0].construction).toBe(true);
+  });
+
   it("counts them and drops them with their own points only", () => {
     expect(constructionSegmentCount(square)).toBe(2);
     const solid = solidSketchProfile(square);

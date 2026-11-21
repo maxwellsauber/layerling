@@ -1,3 +1,4 @@
+import { composeTextMatrix } from "@/lib/sketchText";
 import { orderedCadSketchPaths } from "@/lib/sketchCadProfile";
 import { sampledPath } from "@/lib/sketchStroke";
 import type { SketchProfile, WorkplaneShape } from "@/types/layerling";
@@ -50,7 +51,10 @@ export function stretchedSketchProfile(profile: SketchProfile, x: number, z: num
   const centerX = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
   const centerZ = zs.length ? (Math.min(...zs) + Math.max(...zs)) / 2 : 0;
   const map = (point: { x: number; z: number }) => ({ x: centerX + (point.x - centerX) * x, z: centerZ + (point.z - centerZ) * z });
+  const transform: [number,number,number,number,number,number] = [x,0,0,z,centerX*(1-x),centerZ*(1-z)];
+  const inverse: typeof transform = [1/x,0,0,1/z,centerX*(1-1/x),centerZ*(1-1/z)];
   return {
+    ...(profile.texts ? { texts: profile.texts.map(text => ({...text,matrix:composeTextMatrix(transform,text.pathSegmentIds?.length ? composeTextMatrix(text.matrix,inverse) : text.matrix)})) } : {}),
     points: profile.points.map((point) => ({
       ...point,
       ...map(point),

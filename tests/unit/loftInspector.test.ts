@@ -1,0 +1,65 @@
+// @vitest-environment jsdom
+import { act, createElement, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, expect, it, vi } from "vitest";
+import { ShapeInspector } from "@/components/workplane/ShapeInspector";
+import { DEFAULT_SNAP_GRID, DEFAULT_WORKPLANE_WORKSPACE } from "@/lib/workplaneSettings";
+import { loftProfileFromSvg } from "@/lib/loftSvgImport";
+import type { WorkplaneShape } from "@/types/layerling";
+
+afterEach(()=>{ document.body.innerHTML=""; delete (HTMLElement.prototype as {scrollTo?:unknown}).scrollTo; vi.unstubAllGlobals(); });
+it("keeps uploads beside their section and exposes one wall field until a different top wall is requested",async()=>{
+ vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT",true);
+ Object.defineProperty(HTMLElement.prototype,"scrollTo",{configurable:true,value:vi.fn()});
+ vi.stubGlobal("ResizeObserver",class {observe(){} unobserve(){} disconnect(){}});
+ const profile=loftProfileFromSvg('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0H40V10H20V30H0Z"/></svg>',"L.svg");
+ const source:WorkplaneShape={id:"loft",name:"Loft",kind:"loft",x:0,z:0,size:40,width:40,depth:30,height:30,rotation:0,color:"#ff8800",loftBottomOutline:"svg",loftBottomSvg:profile,loftBottomWidth:40,loftBottomDepth:30,loftTopWidth:30,loftTopDepth:30};
+ const changed=vi.fn();
+ function Harness(){
+   const [shape,setShape]=useState(source);
+   return createElement(ShapeInspector,{shape,snap:DEFAULT_SNAP_GRID,snapOpen:false,workspace:DEFAULT_WORKPLANE_WORKSPACE,onUpdate:patch=>{changed(patch);setShape(s=>({...s,...patch}));},onSnapChange:()=>{},onSnapOpenChange:()=>{}});
+ }
+ const host=document.createElement("div");document.body.append(host);const root=createRoot(host);
+ await act(async()=>root.render(createElement(Harness)));
+ const check=(name:string)=>Array.from(host.querySelectorAll('label')).find(l=>l.textContent?.includes(name))?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+ const expand=(title:string)=>Array.from(host.querySelectorAll('button.loft-stack-expand')).find(b=>b.querySelector('strong')?.textContent===title) as HTMLButtonElement;
+ const action=(label:string)=>host.querySelector(`button[aria-label="${label}"]`) as HTMLButtonElement;
+ const select=()=>host.querySelector('.loft-stack-row-properties select') as HTMLSelectElement;
+ expect(Array.from(host.querySelectorAll('.loft-stack-expand strong')).map(e=>e.textContent)).toEqual(["Top","Bottom"]);
+ expect(host.querySelectorAll('input[type="file"]')).toHaveLength(0);
+ expect(host.textContent).not.toContain("Sections Between");
+ expect(Array.from(select().options).map(o=>o.value)).toEqual(["round","rectangle","polygon","svg","sketch"]);
+ await act(async()=>{select().value="polygon";select().dispatchEvent(new Event("change",{bubbles:true}));});
+ expect(host.textContent).toContain("Top Corners");
+ expect(changed.mock.lastCall?.[0].loftTopOutline).toBe("polygon");
+ await act(async()=>check("Hollow (open at both ends)").click());
+ expect(changed.mock.lastCall?.[0].loftWall).toBe(1);
+ expect(host.textContent).toContain("Wall thickness");expect(host.textContent).not.toContain("Top wall thickness");
+ await act(async()=>check("Different thickness at top").click());expect(host.textContent).toContain("Top wall thickness");
+ const add=()=>Array.from(host.querySelectorAll('button')).find(b=>b.textContent?.trim()==="Add section")!;
+ await act(async()=>add().click());
+ expect(changed.mock.lastCall?.[0].loftSections).toHaveLength(1);
+ expect(host.textContent).not.toContain("Upload section 1 SVG");
+ expect(select().value).toBe("polygon");
+ const prior=changed.mock.calls.length;
+ await act(async()=>{select().value="svg";select().dispatchEvent(new Event("change",{bubbles:true}));});
+ expect(host.textContent).toContain("Upload section 1 SVG");
+ expect(changed).toHaveBeenCalledTimes(prior);
+ expect(select().value).toBe("svg");
+ await act(async()=>{select().value="polygon";select().dispatchEvent(new Event("change",{bubbles:true}));});
+ expect(host.querySelectorAll('input[type="file"]')).toHaveLength(0);
+ expect(Array.from(select().options).map(o=>o.value)).toEqual(["round","rectangle","polygon","svg","sketch"]);
+ await act(async()=>action("Move Section 1 up").click());
+ expect(changed.mock.lastCall?.[0].loftTopOutline).toBe("polygon");
+ expect(changed.mock.lastCall?.[0].loftTopWidth).toBe(35);
+ expect(changed.mock.lastCall?.[0].loftSections[0].outline).toBe("polygon");
+ await act(async()=>expand("Section 1").click());
+ expect(select().value).toBe("polygon");
+ expect(host.textContent).toContain("Section: Corners");
+ await act(async()=>action("Remove Section 1").click());
+ expect(changed.mock.lastCall?.[0].loftSections).toBeUndefined();
+ await act(async()=>expand("Bottom").click());
+ expect(select().value).toBe("svg");expect(host.textContent).toContain("Upload bottom SVG");
+ expect(host.querySelector('[role="alert"]')).toBeNull();
+ await act(async()=>root.unmount());
+});

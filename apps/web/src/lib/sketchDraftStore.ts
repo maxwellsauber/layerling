@@ -29,7 +29,7 @@ export type SketchDraft = {
 
 /** Whether a sketch holds anything worth bringing back: a line, a point or a picture. */
 export function sketchHasWork(profile: SketchProfile): boolean {
-  return profile.segments.length > 0 || profile.points.length > 0 || (profile.images?.length ?? 0) > 0;
+  return (profile.texts?.length ?? 0) > 0 || profile.segments.length > 0 || profile.points.length > 0 || (profile.images?.length ?? 0) > 0;
 }
 
 function openDatabase(): Promise<IDBDatabase> {

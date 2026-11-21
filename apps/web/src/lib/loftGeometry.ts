@@ -1,10 +1,11 @@
 import * as THREE from "three";
+import { normalizeLoftSvgProfile, loftSvgPoints, insetLoftSvg } from "@/lib/loftSvgGeometry";
 import { toCreasedNormals } from "@/lib/creasedNormals";
 import type { CadModifierProfileLoop } from "@/lib/cadModifierTypes";
 import { loftEaseShare } from "@/lib/loftEase";
 import { regularPolygonFootprintScale } from "@/lib/regularPolygonFootprint";
 import { meshYawDegrees, mirrorSign } from "@/lib/workplaneShapes";
-import type { LoftMiddleSection, WorkplaneShape } from "@/types/layerling";
+import type { LoftMiddleSection, LoftSvgProfile, WorkplaneShape } from "@/types/layerling";
 
 /**
  * The transition ("Übergang", a loft, #188): one outline at the bottom, another at the top,
@@ -17,7 +18,7 @@ import type { LoftMiddleSection, WorkplaneShape } from "@/types/layerling";
  * the same surface, and nothing twists.
  */
 
-export type LoftOutline = "round" | "rectangle" | "polygon";
+export type LoftOutline = "round" | "rectangle" | "polygon" | "svg";
 
 export const DEFAULT_LOFT = {
   bottomOutline: "rectangle" as LoftOutline,
@@ -68,6 +69,7 @@ type Point = { x: number; z: number };
 /** One end of the transition: an outline of a kind and size, centred on (cx, cz). */
 export type LoftSection = {
   outline: LoftOutline;
+  svg?: LoftSvgProfile;
   width: number;
   depth: number;
   corner: number;
@@ -80,6 +82,8 @@ export type LoftSection = {
 export type LoftMeasures = {
   bottomOutline: LoftOutline;
   topOutline: LoftOutline;
+  bottomSvg?: LoftSvgProfile;
+  topSvg?: LoftSvgProfile;
   bottomWidth: number;
   bottomDepth: number;
   topWidth: number;
@@ -115,16 +119,17 @@ export type LoftMeasures = {
 export type LoftThrough = "smooth" | "straight";
 
 /** A middle section with every value set (#1034). */
-export type LoftMiddle = Required<LoftMiddleSection>;
+export type LoftMiddle = Required<Omit<LoftMiddleSection, "svg">> & { svg?: LoftSvgProfile };
 
 export type LoftShapeFields = Pick<WorkplaneShape,
   "width" | "depth" | "size" | "height"
+  | "loftBottomSvg" | "loftTopSvg"
   | "loftBottomOutline" | "loftTopOutline" | "loftBottomWidth" | "loftBottomDepth" | "loftTopWidth" | "loftTopDepth"
   | "loftBottomCorner" | "loftTopCorner" | "loftBottomSides" | "loftTopSides" | "loftOffsetX" | "loftOffsetZ" | "loftWall" | "loftTopWall"
   | "loftTwist" | "loftTiltX" | "loftTiltZ" | "loftSmooth" | "loftSegments" | "loftSections" | "loftThrough">;
 
 export function normalizeLoftOutline(value: unknown, fallback: LoftOutline = "round"): LoftOutline {
-  return value === "round" || value === "rectangle" || value === "polygon" ? value : fallback;
+  return value === "round" || value === "rectangle" || value === "polygon" || value === "svg" ? value : fallback;
 }
 
 const finite = (value: unknown, fallback: number) => (typeof value === "number" && Number.isFinite(value) ? value : fallback);
@@ -156,10 +161,13 @@ export function normalizeLoftMiddles(raw: unknown): LoftMiddle[] {
     .map((entry) => {
       const width = Math.max(MIN_LOFT_SIZE, finite(entry.width, 20));
       const depth = Math.max(MIN_LOFT_SIZE, finite(entry.depth, 20));
-      const outline = normalizeLoftOutline(entry.outline, "round");
+      const svg = normalizeLoftSvgProfile(entry.svg);
+      const chosen = normalizeLoftOutline(entry.outline, "round");
+      const outline = chosen === "svg" && !svg ? "round" : chosen;
       return {
         at: Math.min(1 - MIN_LOFT_GAP, Math.max(MIN_LOFT_GAP, finite(entry.at, 0.5))),
         outline,
+        ...(svg ? { svg } : {}),
         width,
         depth,
         corner: normalizeLoftCorner(entry.corner ?? DEFAULT_LOFT.bottomCorner, width, depth),
@@ -186,8 +194,8 @@ export function loftMiddlesWithCount(measures: LoftMeasures, count: number): Lof
   const middles = measures.middles.map((middle) => ({ ...middle }));
   while (middles.length > target) middles.pop();
   while (middles.length < target) {
-    const bottom: LoftMiddle = { at: 0, outline: measures.bottomOutline, width: measures.bottomWidth, depth: measures.bottomDepth, corner: measures.bottomCorner, sides: measures.bottomSides, offsetX: 0, offsetZ: 0 };
-    const top: LoftMiddle = { at: 1, outline: measures.topOutline, width: measures.topWidth, depth: measures.topDepth, corner: measures.topCorner, sides: measures.topSides, offsetX: measures.offsetX, offsetZ: measures.offsetZ };
+    const bottom: LoftMiddle = { at: 0, outline: measures.bottomOutline, svg: measures.bottomSvg, width: measures.bottomWidth, depth: measures.bottomDepth, corner: measures.bottomCorner, sides: measures.bottomSides, offsetX: 0, offsetZ: 0 };
+    const top: LoftMiddle = { at: 1, outline: measures.topOutline, svg: measures.topSvg, width: measures.topWidth, depth: measures.topDepth, corner: measures.topCorner, sides: measures.topSides, offsetX: measures.offsetX, offsetZ: measures.offsetZ };
     const chain = [bottom, ...middles, top];
     let gap = 0;
     chain.slice(1).forEach((upper, index) => {
@@ -200,6 +208,7 @@ export function loftMiddlesWithCount(measures: LoftMeasures, count: number): Lof
     middles.push({
       at: half(lower.at, upper.at),
       outline: lower.outline,
+      svg: lower.svg,
       width: half(lower.width, upper.width),
       depth: half(lower.depth, upper.depth),
       corner: half(lower.corner, upper.corner),
@@ -225,12 +234,33 @@ export function normalizeLoftMeasures(raw: Partial<LoftMeasures>): LoftMeasures 
   const sizes = { bottomWidth, bottomDepth, topWidth, topDepth };
   const middles = normalizeLoftMiddles(raw.middles);
   const wallLimit = maxLoftWall({ ...sizes, middles });
-  const wall = Math.min(wallLimit, Math.max(0, finite(raw.wall, 0)));
-  // Both walls stay under the same limit, so a section in between, whose wall lies between them, keeps its opening too.
-  const topWall = wall > 0 ? Math.min(wallLimit, Math.max(MIN_LOFT_TOP_WALL, finite(raw.topWall, wall))) : 0;
+  const bottomSvg = normalizeLoftSvgProfile(raw.bottomSvg), topSvg = normalizeLoftSvgProfile(raw.topSvg);
+  const svgSections = [
+    ...(raw.bottomOutline === "svg" && bottomSvg ? [{svg:bottomSvg,width:bottomWidth,depth:bottomDepth,at:0}] : []),
+    ...(raw.topOutline === "svg" && topSvg ? [{svg:topSvg,width:topWidth,depth:topDepth,at:1}] : []),
+    ...middles.filter(m=>m.outline === "svg" && m.svg).map(m=>({svg:m.svg!,width:m.width,depth:m.depth,at:m.at})),
+  ];
+  let wall = Math.min(wallLimit, Math.max(0, finite(raw.wall, 0)));
+  let topWall = wall > 0 ? Math.min(wallLimit, Math.max(MIN_LOFT_TOP_WALL, finite(raw.topWall,wall))) : 0;
+  // Check the actual thickness at every section, not only the largest thickness. Insets can change topology.
+  const fits = (scale:number) => svgSections.every(section=>{
+    try { insetLoftSvg(loftSvgPoints(section.svg,section.width,section.depth), (wall+(topWall-wall)*section.at)*scale); return true; }
+    catch { return false; }
+  });
+  if(wall>1e-6 && !fits(1)) {
+    let low=0,high=1;
+    for(let i=0;i<20;i++) {const mid=(low+high)/2;if(fits(mid))low=mid;else high=mid;}
+    let scale=low*.99;
+    // Verify the final result as well: an inset is not assumed valid merely because a larger one was.
+    while(scale>1e-6 && !fits(scale)) scale*=.5;
+    if(scale<=1e-6) scale=0;
+    wall*=scale;topWall*=scale;
+  }
   return {
-    bottomOutline: normalizeLoftOutline(raw.bottomOutline, DEFAULT_LOFT.bottomOutline),
-    topOutline: normalizeLoftOutline(raw.topOutline, DEFAULT_LOFT.topOutline),
+    bottomOutline: raw.bottomOutline === "svg" && !bottomSvg ? DEFAULT_LOFT.bottomOutline : normalizeLoftOutline(raw.bottomOutline, DEFAULT_LOFT.bottomOutline),
+    ...(bottomSvg ? { bottomSvg } : {}),
+    ...(topSvg ? { topSvg } : {}),
+    topOutline: raw.topOutline === "svg" && !topSvg ? DEFAULT_LOFT.topOutline : normalizeLoftOutline(raw.topOutline, DEFAULT_LOFT.topOutline),
     ...sizes,
     bottomCorner: normalizeLoftCorner(raw.bottomCorner ?? DEFAULT_LOFT.bottomCorner, bottomWidth, bottomDepth),
     topCorner: normalizeLoftCorner(raw.topCorner ?? DEFAULT_LOFT.topCorner, topWidth, topDepth),
@@ -263,6 +293,8 @@ export function loftIsTurned(measures: Pick<LoftMeasures, "twist" | "tiltX" | "t
 export function loftStoredMeasures(shape: LoftShapeFields): LoftMeasures {
   return normalizeLoftMeasures({
     bottomOutline: shape.loftBottomOutline,
+    bottomSvg: shape.loftBottomSvg,
+    topSvg: shape.loftTopSvg,
     topOutline: shape.loftTopOutline,
     bottomWidth: shape.loftBottomWidth,
     bottomDepth: shape.loftBottomDepth,
@@ -382,6 +414,8 @@ export function loftShapePatch(shape: WorkplaneShape, change: Partial<LoftMeasur
 export function loftFieldsFromMeasures(measures: LoftMeasures): Partial<WorkplaneShape> {
   return {
     loftBottomOutline: measures.bottomOutline,
+    loftBottomSvg: measures.bottomSvg,
+    loftTopSvg: measures.topSvg,
     loftTopOutline: measures.topOutline,
     loftBottomWidth: measures.bottomWidth,
     loftBottomDepth: measures.bottomDepth,
@@ -419,6 +453,7 @@ function sectionsAt(measures: LoftMeasures, cx: number, cz: number): { bottom: L
   return {
     bottom: {
       outline: measures.bottomOutline,
+      svg: measures.bottomSvg,
       width: measures.bottomWidth,
       depth: measures.bottomDepth,
       corner: measures.bottomCorner,
@@ -428,6 +463,7 @@ function sectionsAt(measures: LoftMeasures, cx: number, cz: number): { bottom: L
     },
     top: {
       outline: measures.topOutline,
+      svg: measures.topSvg,
       width: measures.topWidth,
       depth: measures.topDepth,
       corner: measures.topCorner,
@@ -443,6 +479,7 @@ function chainAt(measures: LoftMeasures, cx: number, cz: number): { sections: Lo
   const { bottom, top } = sectionsAt(measures, cx, cz);
   const middles = measures.middles.map((middle): LoftSection => ({
     outline: middle.outline,
+    svg: middle.svg,
     width: middle.width,
     depth: middle.depth,
     corner: middle.corner,
@@ -504,6 +541,10 @@ function sectionPieces(section: LoftSection): Piece[] {
   const { cx, cz } = section;
   const hw = section.width / 2;
   const hd = section.depth / 2;
+  if (section.outline === "svg" && section.svg) {
+    const points = loftSvgPoints(section.svg, section.width, section.depth).map(p=>({x:p.x+cx,z:p.z+cz}));
+    return points.map((a,i)=>({kind:"line",a,b:points[(i+1)%points.length]}));
+  }
   if (section.outline === "round") return [{ kind: "arc", cx, cz, rx: hw, rz: hd, t0: 0, t1: Math.PI * 2 }];
   if (section.outline === "polygon") {
     const points = polygonPoints(section);
@@ -601,6 +642,11 @@ function uniqueAngles(angles: number[]) {
 
 /** The section shrunk inwards by the wall: the opening of a tube. */
 function insetSection(section: LoftSection, wall: number): LoftSection {
+  if (section.outline === "svg" && section.svg) {
+    const points = insetLoftSvg(loftSvgPoints(section.svg, section.width, section.depth), wall);
+    // Keep the original frame: the inset may be asymmetric on a concave drawing.
+    return { ...section, svg: { ...section.svg, points: points.map(p=>({x:p.x/section.width,z:p.z/section.depth})) } };
+  }
   if (section.outline === "polygon") {
     // A regular polygon shrinks evenly: every side moves in by the wall when the apothem does.
     const points = polygonPoints(section);
@@ -633,7 +679,11 @@ export type LoftPieces = { bottom: Piece[]; top: Piece[] };
  * Two outlines cut alike. Angles 0, 90, 180 and 270 degrees are always cuts, so even two
  * circles meet in four pieces and start at the same point.
  */
-function pairSections(lower: LoftSection, upper: LoftSection): LoftPieces {
+function pairSections(lower: LoftSection, upper: LoftSection, segments = DEFAULT_LOFT.segments): LoftPieces {
+  if (lower.outline === "svg" || upper.outline === "svg") {
+    const chain = matchSvgSections([lower,upper], segments);
+    return {bottom:chain[0],top:chain[1]};
+  }
   const lowerMiddle = sectionMiddle(lower);
   const upperMiddle = sectionMiddle(upper);
   const lowerPieces = sectionPieces(lower);
@@ -646,11 +696,43 @@ function pairSections(lower: LoftSection, upper: LoftSection): LoftPieces {
   return { bottom: cutAtAngles(lowerPieces, lowerMiddle, cuts), top: cutAtAngles(upperPieces, upperMiddle, cuts) };
 }
 
+/** Concave SVGs cannot use polar cuts. Match perimeter fractions, preserving every section's corners. */
+function matchSvgSections(sections: LoftSection[], segments = DEFAULT_LOFT.segments): Piece[][] {
+  const rings = sections.map(section => {
+    const points = sectionPieces(section).flatMap(piece => {
+      const n=piece.kind === "line" ? 1 : Math.max(2,Math.ceil(Math.abs(piece.t1-piece.t0)/(Math.PI*2/segments)));
+      return Array.from({length:n},(_,i)=>pieceAt(piece,i/n));
+    });
+    // Rotate primitives to their rightmost vertex too.
+    let first=0;
+    points.forEach((p,i)=>{ const q=points[first]; if(p.x>q.x+1e-8 || (Math.abs(p.x-q.x)<1e-8 && Math.abs(p.z-section.cz)<Math.abs(q.z-section.cz))) first=i; });
+    const ring=[...points.slice(first),...points.slice(0,first)];
+    const lengths=[0];
+    ring.forEach((p,i)=>{ const q=ring[(i+1)%ring.length]; lengths.push(lengths[i]+Math.hypot(q.x-p.x,q.z-p.z)); });
+    const total=lengths[lengths.length-1];
+    return {ring, fractions:lengths.map(v=>v/total)};
+  });
+  const candidates=[...rings.flatMap(r=>r.fractions.slice(0,-1)), ...Array.from({length:segments},(_,i)=>i/segments)].sort((a,b)=>a-b);
+  const cuts:number[]=[];
+  // Nearly coincident corners from neighbouring insets must not create microscopic kernel edges.
+  for(const fraction of candidates) if(!cuts.length || fraction-cuts[cuts.length-1]>1e-5) cuts.push(fraction);
+  if(cuts.length>1 && 1-cuts[cuts.length-1]<1e-5) cuts.pop();
+  return rings.map(({ring,fractions})=>{
+    let edge=0;
+    const points=cuts.map(f=>{
+      while(edge+1<ring.length && fractions[edge+1]<f-1e-10) edge++;
+      return mix(ring[edge],ring[(edge+1)%ring.length],Math.max(0,Math.min(1,(f-fractions[edge])/(fractions[edge+1]-fractions[edge]))));
+    });
+    return points.map((a,i)=>({kind:"line" as const,a,b:points[(i+1)%points.length]}));
+  });
+}
+
 /** The outer pair of outlines and, with a wall, the inner pair (the opening), each pair cut alike. */
 export function loftPieces(shape: LoftShapeFields): { outer: LoftPieces; inner: LoftPieces | null } {
   const { bottom, top, wall, topWall } = loftSections(shape);
-  const outer = pairSections(bottom, top);
-  const inner = wall > 1e-6 ? pairSections(insetSection(bottom, wall), insetSection(top, topWall)) : null;
+  const segments = loftMeasures(shape).segments;
+  const outer = pairSections(bottom, top, segments);
+  const inner = wall > 1e-6 ? pairSections(insetSection(bottom, wall), insetSection(top, topWall), segments) : null;
   return { outer, inner };
 }
 
@@ -659,7 +741,8 @@ export function loftPieces(shape: LoftShapeFields): { outer: LoftPieces; inner: 
  * and at every corner of any of them, round each one's own middle. Piece i of one faces piece i of the
  * next, and every outline starts at the angle 0 - the start points line up, so nothing twists.
  */
-function cutChain(sections: LoftSection[]): Piece[][] {
+function cutChain(sections: LoftSection[], segments = DEFAULT_LOFT.segments): Piece[][] {
+  if (sections.some(section=>section.outline === "svg")) return matchSvgSections(sections, segments);
   const middles = sections.map(sectionMiddle);
   const pieces = sections.map(sectionPieces);
   const notWhole = (piece: Piece) => piece.kind === "line" || Math.abs(piece.t1 - piece.t0) < TWO_PI - 1e-9;
@@ -675,10 +758,10 @@ export function loftChainPieces(shape: LoftShapeFields) {
   const measures = loftMeasures(shape);
   const frame = loftFrameSize(measures);
   const { sections, at } = chainAt(measures, -frame.centerX, -frame.centerZ);
-  const outer = cutChain(sections);
+  const outer = cutChain(sections, measures.segments);
   // The wall goes evenly from the bottom's to the top's, by how high each section stands.
   const wallAt = (share: number) => measures.wall + (measures.topWall - measures.wall) * share;
-  const inner = measures.wall > 1e-6 ? cutChain(sections.map((section, index) => insetSection(section, wallAt(at[index])))) : null;
+  const inner = measures.wall > 1e-6 ? cutChain(sections.map((section, index) => insetSection(section, wallAt(at[index]))), measures.segments) : null;
   return { outer, inner, at, measures };
 }
 
@@ -719,10 +802,10 @@ export function monotoneCubic(xs: number[], ys: number[]) {
 }
 
 /** The shares of the height a smooth transition through more sections is built at: LOFT_THROUGH_STEPS between two sections. */
-export function loftThroughStations(at: number[]) {
+export function loftThroughStations(at: number[], steps = LOFT_THROUGH_STEPS) {
   const stations: number[] = [];
   for (let k = 0; k + 1 < at.length; k += 1) {
-    for (let step = 0; step < LOFT_THROUGH_STEPS; step += 1) stations.push(at[k] + ((at[k + 1] - at[k]) * step) / LOFT_THROUGH_STEPS);
+    for (let step = 0; step < steps; step += 1) stations.push(at[k] + ((at[k + 1] - at[k]) * step) / steps);
   }
   stations.push(at[at.length - 1]);
   return stations;
@@ -749,9 +832,9 @@ function bezierLoopOf(points: Point[]): CadModifierProfileLoop {
  * cubic up the height through the same handle of every section. Body and mesh are built through
  * the same sections, so they are the same surface.
  */
-function smoothStations(chain: Piece[][], at: number[]): { stations: number[]; loops: CadModifierProfileLoop[] } {
+function smoothStations(chain: Piece[][], at: number[], steps = LOFT_THROUGH_STEPS): { stations: number[]; loops: CadModifierProfileLoop[] } {
   const points = chain.map((pieces) => bezierPoints(piecesToBezierLoop(pieces)));
-  const stations = loftThroughStations(at);
+  const stations = loftThroughStations(at, steps);
   const curves = points[0].map((_, index) => ({
     x: monotoneCubic(at, points.map((list) => list[index].x)),
     z: monotoneCubic(at, points.map((list) => list[index].z)),
@@ -960,8 +1043,8 @@ function loftThroughLoops(shape: LoftShapeFields): LoftProfileLoops {
   if (measures.through === "straight") {
     through = at.map((t, index) => ({ y: t * height, loops: [piecesToLoop(outer[index]), ...(inner ? [piecesToLoop(inner[index])] : [])] }));
   } else {
-    const outerSmooth = smoothStations(outer, at);
-    const innerSmooth = inner ? smoothStations(inner, at) : null;
+    const outerSmooth = smoothStations(outer, at, svgThroughSteps(measures));
+    const innerSmooth = inner ? smoothStations(inner, at, svgThroughSteps(measures)) : null;
     through = outerSmooth.stations.map((t, index) => ({ y: t * height, loops: [outerSmooth.loops[index], ...(innerSmooth ? [innerSmooth.loops[index]] : [])] }));
   }
   return { loops: through[0].loops, topLoops: through[through.length - 1].loops, through, ...(measures.through === "straight" ? { throughRuled: true } : {}) };
@@ -1061,6 +1144,46 @@ function chainSteps(chain: Piece[][], segments: number) {
  * at the same fractions of its pieces, rows between neighbours mixed evenly. Smooth: the smooth
  * sections the body is lofted through, each sampled the same way.
  */
+function hasSvgLoft(measures: LoftMeasures) {
+  return measures.bottomOutline === "svg" || measures.topOutline === "svg" || measures.middles.some(m=>m.outline === "svg");
+}
+
+function svgThroughSteps(measures: LoftMeasures) {
+  return hasSvgLoft(measures) ? Math.max(LOFT_THROUGH_STEPS, Math.ceil(LOFT_THROUGH_STEPS * measures.segments / DEFAULT_LOFT.segments)) : LOFT_THROUGH_STEPS;
+}
+
+/** Triangulate without sliver caps, then restore every boundary vertex to avoid T-junctions. */
+function triangulateSvgCap(contour: Point[], hole: Point[] | null): number[][] {
+  const all = hole ? [...contour,...hole] : contour;
+  const simplified: number[][] = [];
+  const chains: number[][] = [];
+  let offset=0;
+  for(const ring of [contour,...(hole ? [hole] : [])]) {
+    const kept=ring.map((_,i)=>i).filter(i=>{
+      const a=ring[(i+ring.length-1)%ring.length],b=ring[i],c=ring[(i+1)%ring.length];
+      return Math.abs((b.x-a.x)*(c.z-b.z)-(b.z-a.z)*(c.x-b.x)) > 1e-8;
+    });
+    simplified.push(kept.map(i=>i+offset));
+    kept.forEach((start,k)=>{
+      const end=kept[(k+1)%kept.length], chain=[start+offset];
+      for(let i=(start+1)%ring.length;i!==end;i=(i+1)%ring.length) chain.push(i+offset);
+      chain.push(end+offset); if(chain.length>2) chains.push(chain);
+    });
+    offset+=ring.length;
+  }
+  const flat=simplified.flat();
+  const vectors=(ids:number[])=>ids.map(i=>new THREE.Vector2(all[i].x,all[i].z));
+  const triangles=THREE.ShapeUtils.triangulateShape(vectors(simplified[0]),simplified.slice(1).map(vectors)).map(t=>t.map(i=>flat[i]));
+  for(const chain of chains) {
+    const start=chain[0],end=chain[chain.length-1];
+    const at=triangles.findIndex(t=>t.includes(start)&&t.includes(end));
+    if(at<0) continue;
+    const triangle=triangles[at], other=triangle.find(i=>i!==start&&i!==end)!;
+    triangles.splice(at,1,...chain.slice(1).map((v,i)=>[chain[i],v,other]));
+  }
+  return triangles;
+}
+
 function createLoftChainGeometry(shape: LoftShapeFields): THREE.BufferGeometry {
   const height = Math.max(0.01, shape.height);
   const { outer, inner, at, measures } = loftChainPieces(shape);
@@ -1071,7 +1194,7 @@ function createLoftChainGeometry(shape: LoftShapeFields): THREE.BufferGeometry {
   const rowsOf = (chain: Piece[][]): Array<{ t: number; ring: Point[] }> => {
     const steps = chainSteps(chain, segments);
     if (measures.through === "smooth") {
-      const { stations, loops } = smoothStations(chain, at);
+      const { stations, loops } = smoothStations(chain, at, svgThroughSteps(measures));
       return stations.map((t, index) => {
         const points = bezierPoints(loops[index]);
         const ring: Point[] = [];
@@ -1118,7 +1241,9 @@ function createLoftChainGeometry(shape: LoftShapeFields): THREE.BufferGeometry {
   const addCap = (contour: Point[], contourStart: number, hole: Point[] | null, holeStart: number, up: boolean) => {
     const all = hole ? [...contour, ...hole] : contour;
     const index = (k: number) => (k < contour.length ? contourStart + k : holeStart + k - contour.length);
-    THREE.ShapeUtils.triangulateShape(contour.map((p) => new THREE.Vector2(p.x, p.z)), hole ? [hole.map((p) => new THREE.Vector2(p.x, p.z))] : [])
+    (hasSvgLoft(measures)
+      ? triangulateSvgCap(contour,hole)
+      : THREE.ShapeUtils.triangulateShape(contour.map((p) => new THREE.Vector2(p.x, p.z)), hole ? [hole.map((p) => new THREE.Vector2(p.x, p.z))] : []))
       .forEach(([a, b, c]) => {
         const area = (all[b].x - all[a].x) * (all[c].z - all[a].z) - (all[c].x - all[a].x) * (all[b].z - all[a].z);
         const facesDown = area > 0;
@@ -1164,7 +1289,8 @@ export function createLoftGeometry(shape: LoftShapeFields): THREE.BufferGeometry
     const count = rings.bottom.length;
     const turnedRows = turn.turned ? Math.max(wallRows(rings, height), (loftSectionCount(turn.measures) - 1) * 2) : wallRows(rings, height);
     // The S-curve of a smooth transition needs rows to follow it.
-    const rows = smooth > 1e-9 ? Math.max(turnedRows, 24) : turnedRows;
+    const detail = hasSvgLoft(turn.measures) ? Math.max(1, turn.measures.segments / DEFAULT_LOFT.segments) : 1;
+    const rows = Math.ceil((smooth > 1e-9 ? Math.max(turnedRows, 24) : turnedRows) * detail);
     const starts: number[] = [];
     for (let row = 0; row <= rows; row += 1) {
       const v = row / rows;
@@ -1182,8 +1308,11 @@ export function createLoftGeometry(shape: LoftShapeFields): THREE.BufferGeometry
     }
     return { bottom: starts[0], top: starts[rows] };
   };
-  const outerRings = sampledRings(outer, turnedSideSteps(turn.measures), turn.measures.segments);
-  const innerRings = inner ? sampledRings(inner, turnedSideSteps(turn.measures), turn.measures.segments) : null;
+  // SVG correspondence already includes evenly spaced perimeter cuts. Applying
+  // the per-edge twist multiplier again would multiply detail (and cost) twice.
+  const least = hasSvgLoft(turn.measures) ? 1 : turnedSideSteps(turn.measures);
+  const outerRings = sampledRings(outer, least, turn.measures.segments);
+  const innerRings = inner ? sampledRings(inner, least, turn.measures.segments) : null;
   const outerStart = addWall(outerRings, true);
   const innerStart = innerRings ? addWall(innerRings, false) : null;
   // The two ends on the walls' own rim points, the opening as a hole: facing down at the bottom,
@@ -1191,7 +1320,9 @@ export function createLoftGeometry(shape: LoftShapeFields): THREE.BufferGeometry
   const addCap = (contour: Point[], contourStart: number, hole: Point[] | null, holeStart: number, up: boolean) => {
     const all = hole ? [...contour, ...hole] : contour;
     const index = (k: number) => (k < contour.length ? contourStart + k : holeStart + k - contour.length);
-    THREE.ShapeUtils.triangulateShape(contour.map((p) => new THREE.Vector2(p.x, p.z)), hole ? [hole.map((p) => new THREE.Vector2(p.x, p.z))] : [])
+    (hasSvgLoft(turn.measures)
+      ? triangulateSvgCap(contour,hole)
+      : THREE.ShapeUtils.triangulateShape(contour.map((p) => new THREE.Vector2(p.x, p.z)), hole ? [hole.map((p) => new THREE.Vector2(p.x, p.z))] : []))
       .forEach(([a, b, c]) => {
         // A triangle running counter-clockwise (x towards z) faces down.
         const area = (all[b].x - all[a].x) * (all[c].z - all[a].z) - (all[c].x - all[a].x) * (all[b].z - all[a].z);

@@ -1,5 +1,6 @@
 "use client";
 
+import { DemoBrandLabel } from "@/components/DemoBrandLabel";
 import { GuideHelpLink } from "@/components/GuideHelpLink";
 import { FocusModeBar } from "@/components/workplane/FocusModeBar";
 import { ProjectNameField } from "@/components/workplane/ProjectNameField";
@@ -294,8 +295,10 @@ export function SecondaryToolbar({
   onSketchStroke,
   onStartSketch,
   onEditSketch,
+  onProjectVariables,
   onSketchTool,
   onSketchPrimitive,
+  onSketchText,
   sketchShapeOptions,
   onSketchShapeOptions,
   onSketchImage,
@@ -487,8 +490,10 @@ export function SecondaryToolbar({
   onSketchStroke?: () => void;
   onStartSketch: (operation: SketchOperation) => void;
   onEditSketch: () => void;
+  onProjectVariables?: () => void;
   onSketchTool: (tool: SketchTool) => void;
   onSketchPrimitive: (primitive: SketchPrimitive) => void;
+  onSketchText?: () => void;
   sketchShapeOptions: SketchShapeOptions;
   onSketchShapeOptions: (options: SketchShapeOptions) => void;
   onSketchImage: () => void;
@@ -1243,6 +1248,7 @@ export function SecondaryToolbar({
     ): PaletteCommand => ({ id, label, group, keywords: COMMAND_KEYWORDS[id], shortcut: COMMAND_SHORTCUTS[id], enabled, run, ...extra });
     const helpGroup = t("editor.group.help");
     const helpCommands = [
+      ...(onProjectVariables?[plain("project-variables",t("variables.title"),helpGroup,true,onProjectVariables,{keywords:["variables","parameters","dimensions","formulas"]})]:[]),
       plain("guide", t("editor.guide"), helpGroup, true, onGuide, { icon: ToolbarGuideIcon }),
       plain("shortcuts", t("editor.keyboardShortcuts"), helpGroup, true, onShortcuts, { icon: ToolbarKeyboardIcon }),
       ...(onWhatsNew ? [plain("whats-new", t("whatsNew.footerLink"), helpGroup, true, onWhatsNew, { icon: Sparkles })] : []),
@@ -1618,6 +1624,10 @@ export function SecondaryToolbar({
           ) : null}
         </div>
         )}
+        {onProjectVariables&&<div className="toolbar-section compact" data-group="variables" style={{order:sectionOrder.visibility+0.5}}>
+          <div className="toolbar-section-label">{t("variables.title")}</div>
+          <div className="toolbar-section-tools"><button type="button" className="tool-button" aria-label={t("variables.title")} title={t("variables.title")} onClick={onProjectVariables}><span className="project-variable-function" aria-hidden="true">ƒ</span></button></div>
+        </div>}
         {ribbonGroupShown("combine", ribbonHidden, combineShown) ? (
         <div className="toolbar-section" data-group="combine" {...foldProps("combine", 6)} style={{ order: sectionOrder.combine }}>
           <div className="toolbar-section-label">{t("editor.group.combine")}</div>
@@ -1708,6 +1718,7 @@ export function SecondaryToolbar({
                       resizable
                     >
                       <div className="shape-menu-list">
+                        {onSketchText ? <button className="shape-menu-item" type="button" role="menuitem" onClick={() => { onSketchText(); closeShapesAfterPick(); }}><span className="sketch-shape-menu-icon" aria-hidden="true">T</span><span>{t("prop.text")}</span></button> : null}
                         {sketchShapeMenuItems.map(({ primitive, label, icon: Icon }) => (
                           <button
                             className="shape-menu-item sketch-primitive-source"
@@ -1817,6 +1828,10 @@ export function SecondaryToolbar({
                   </div>
                 </div>
                 <div className="toolbar-spacer" />
+                {onProjectVariables&&<div className="toolbar-section compact" data-group="variables">
+                  <div className="toolbar-section-label">{t("variables.title")}</div>
+                  <div className="toolbar-section-tools"><button type="button" className="tool-button" aria-label={t("variables.title")} title={t("variables.title")} onClick={onProjectVariables}><span className="project-variable-function" aria-hidden="true">ƒ</span></button></div>
+                </div>}
                 <div className="toolbar-section sketch-finish-section" data-group="finish">
                   <div className="toolbar-section-label">{t("sketch.group.finish")}</div>
                   <div className="toolbar-section-tools">
@@ -1893,18 +1908,16 @@ export function SecondaryToolbar({
           <img src="/assets/layerling/layerling-logo.svg" alt="Layerling" />
           <span className="toolbar-brand-text">
             <span className="toolbar-brand-name">layerling</span>
-            <span className="toolbar-brand-tagline">{t("brand.tagline")}</span>
+            <DemoBrandLabel />
           </span>
         </div>
-        {/* Back to the start page, before the tabs rather than as a group of its own in the ribbon, which needs the room
-            (Stefan, 29.10.2026). An open sketch is finished or left first, as before, when the button was only in 3D. */}
+        {/* Sketch drafts are kept when returning to the demo gallery. */}
         {onHome ? (
           <button
             className="toolbar-title-home editor-home-control"
             type="button"
             aria-label={t("editor.homeDashboard")}
             title={t("editor.homeDashboard")}
-            disabled={toolbarMode !== "geometry"}
             onClick={onHome}
           >
             <ToolbarHomeIcon />
@@ -1998,7 +2011,7 @@ export function SecondaryToolbar({
           sketchDisabled={historyViewActive}
           onSelectMode={selectToolbarMode}
           onHome={onHome}
-          homeDisabled={toolbarMode !== "geometry"}
+          homeDisabled={false}
           onSearch={openPalette}
           onSettings={() => window.dispatchEvent(new Event("layerling:open-workspace-settings"))}
           onLeave={() => onFocusModeChange(false)}

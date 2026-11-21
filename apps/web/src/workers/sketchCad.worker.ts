@@ -4,6 +4,7 @@ import { OcctKernel, type OcctModuleFactory, type ShapeHandle } from "occt-wasm"
 import { CAD_MODIFIER_RUNTIME_BASE } from "@/lib/cadModifierRuntime";
 import { announceKernel } from "@/lib/cadKernelGate";
 import { sketchCadDeflection, sketchRevolveCadDeflection } from "@/lib/sketchCadDeflection";
+import { buildRaisedSketchTextSolid } from "@/lib/cadSketchRaisedText";
 import { cadSketchRegions } from "@/lib/sketchCadProfile";
 import { buildRevolvedSketchSolid } from "@/lib/cadSketchRevolve";
 import { buildStrokedSketchSolid, chamferTopEdges } from "@/lib/cadSketchStroke";
@@ -70,6 +71,8 @@ self.onmessage = async (event: MessageEvent<SketchCadBuildRequest>) => {
       result = buildRevolvedSketchSolid(cad, request.profile, request.revolve.startAngle, request.revolve.sweepAngle);
     } else if (request.sweep) {
       result = buildSweptSketchSolid(cad, request.profile);
+    } else if (request.textStacks?.length) {
+      result = buildRaisedSketchTextSolid(cad,request.profile,request.height,request.textStacks);
     } else if (request.stroke) {
       const stroked = buildStrokedSketchSolid(cad, request.profile, request.stroke, request.height);
       if (!stroked) throw new Error(SKETCH_STROKE_UNSUPPORTED);

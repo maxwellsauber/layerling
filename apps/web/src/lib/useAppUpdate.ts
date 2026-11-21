@@ -14,13 +14,14 @@ function asksGitHubForUpdates() {
   return typeof window === "undefined" || !PUBLISHED_HOSTS.has(window.location.hostname.toLowerCase());
 }
 
-export function useAppUpdate(currentVersion: string) {
+// This experimental demo is distributed manually, independently of upstream releases.
+export function useAppUpdate(currentVersion: string, enabled = false) {
   const [update, setUpdate] = useState<AppUpdateInfo | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
 
   useEffect(() => {
-    if (!asksGitHubForUpdates()) return;
+    if (!enabled || !asksGitHubForUpdates()) return;
     let cancelled = false;
     setIsChecking(true);
     checkAppUpdate(currentVersion)
@@ -37,7 +38,7 @@ export function useAppUpdate(currentVersion: string) {
     return () => {
       cancelled = true;
     };
-  }, [currentVersion]);
+  }, [currentVersion, enabled]);
 
   const dismiss = () => {
     if (update) {

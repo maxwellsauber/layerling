@@ -1,5 +1,6 @@
+import { composeTextMatrix, transformSketchText, regenerateSketchTexts, withoutSketchTextGeometry } from "@/lib/sketchText";
 import { addLineIntersectionPoints } from "@/lib/sketchPointRefinement";
-import type { SketchImage, SketchPoint, SketchProfile, SketchSegment } from "@/types/layerling";
+import type { SketchImage, SketchPoint, SketchProfile, SketchSegment, SketchText } from "@/types/layerling";
 
 /*
  * Copy, paste and duplicate inside a sketch. The clipboard holds plain sketch
@@ -7,7 +8,7 @@ import type { SketchImage, SketchPoint, SketchProfile, SketchSegment } from "@/t
  * survives from one sketch to the next within the session.
  */
 
-export type SketchClipboard = { points: SketchPoint[]; segments: SketchSegment[]; images: SketchImage[] };
+export type SketchClipboard = { points: SketchPoint[]; segments: SketchSegment[]; images: SketchImage[]; texts?: SketchText[] };
 
 export type SketchClipboardSelection =
   | { kind: "point" | "segment" | "image"; id: string }
@@ -44,12 +45,14 @@ export function copySketchSelection(profile: SketchProfile, selection: SketchCli
     pointIds.add(segment.startId);
     pointIds.add(segment.endId);
   });
+  const texts = profile.texts?.filter(text => text.pointIds.some(id => pointIds.has(id)));
+  for (const text of texts ?? []) for (const id of text.pointIds) pointIds.add(id);
   const points = profile.points.filter((point) => pointIds.has(point.id));
   const copiedPointIds = new Set(points.map((point) => point.id));
   const segments = profile.segments.filter((segment) => copiedPointIds.has(segment.startId) && copiedPointIds.has(segment.endId));
   const images = (profile.images ?? []).filter((image) => selectedImageIds.has(image.id));
   if (points.length === 0 && images.length === 0) return null;
-  return structuredClone({ points, segments, images });
+  return structuredClone({ points, segments, images, ...(texts?.length ? { texts } : {}) });
 }
 
 /**
@@ -76,25 +79,33 @@ export function pasteSketchClipboard(
     handleIn: point.handleIn ? shift(point.handleIn) : undefined,
     handleOut: point.handleOut ? shift(point.handleOut) : undefined,
   }));
+  const segmentIdMap = new Map(clipboard.segments.map(segment => [segment.id, createId("sketch-segment")]));
   const segments = clipboard.segments.flatMap((segment) => {
     const startId = pointIdMap.get(segment.startId);
     const endId = pointIdMap.get(segment.endId);
-    return startId && endId ? [{ ...segment, id: createId("sketch-segment"), startId, endId }] : [];
+    return startId && endId ? [{ ...segment, id: segmentIdMap.get(segment.id)!, startId, endId }] : [];
   });
   const images = clipboard.images.map((image) => ({ ...image, ...shift(image), id: createId("sketch-image"), locked: false }));
-  const next = addLineIntersectionPoints({
-    ...profile,
-    points: [...profile.points, ...points],
-    segments: [...profile.segments, ...segments],
+  const shiftMatrix: [number,number,number,number,number,number] = [1,0,0,1,offset.x,offset.z];
+  const unshift: typeof shiftMatrix = [1,0,0,1,-offset.x,-offset.z];
+  const texts = clipboard.texts?.map(text => ({ ...structuredClone(text), id: createId("sketch-text"),
+    pointIds: text.pointIds.map(id => pointIdMap.get(id)!), segmentIds: text.segmentIds.map(id => segmentIdMap.get(id)!),
+    pathSegmentIds: text.pathSegmentIds?.map(id => segmentIdMap.get(id) ?? id),
+    ...(text.pathSegmentIds?.length && !text.pathSegmentIds.every(id => segmentIdMap.has(id)) ? (() => { const moved=transformSketchText(text,shiftMatrix,profile); return {matrix:moved.matrix,startOffset:moved.startOffset,baselineOffset:moved.baselineOffset}; })() : {matrix:composeTextMatrix(shiftMatrix,text.pathSegmentIds?.length ? composeTextMatrix(text.matrix,unshift) : text.matrix)}),
+  }));
+  const candidate: SketchProfile = {
+    ...profile, points: [...profile.points, ...points], segments: [...profile.segments, ...segments],
     images: [...(profile.images ?? []), ...images],
-  }, createId);
+    ...(texts?.length ? { texts: [...profile.texts ?? [], ...texts] } : {}),
+  };
+  const next = regenerateSketchTexts(addLineIntersectionPoints(withoutSketchTextGeometry(candidate), createId), candidate);
   // Crossing points all lie on a pasted line, so they belong to the selection.
   const existingPointIds = new Set(profile.points.map((point) => point.id));
   const firstPasted = segments.length ? next.segments.findIndex((segment) => segment.id === segments[0].id) : -1;
   return {
     profile: next,
     pointIds: next.points.filter((point) => !existingPointIds.has(point.id)).map((point) => point.id),
-    segmentIds: firstPasted < 0 ? [] : next.segments.slice(firstPasted).map((segment) => segment.id),
+    segmentIds: texts?.length ? next.segments.filter(s => texts.some(t => next.texts?.find(n => n.id === t.id)?.segmentIds.includes(s.id)) || segments.some(p => p.id === s.id)).map(s => s.id) : firstPasted < 0 ? [] : next.segments.slice(firstPasted).map((segment) => segment.id),
     imageIds: images.map((image) => image.id),
   };
 }

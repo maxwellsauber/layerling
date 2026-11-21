@@ -1,4 +1,9 @@
 "use client";
+import { ProjectVariablesContext } from "./ProjectVariablesContext";
+import { PARAMETER_FIELDS, supportsParameters, parameterValue } from "@/lib/projectVariables";
+import { LoftSvgControls, type LoftSvgSection } from "./LoftSvgControls";
+import { LoftSectionStack, type LoftSectionRow } from "./LoftSectionStack";
+import { addLoftSection, reorderLoftSections } from "@/lib/loftSectionStack";
 
 import { displayY, displayYTurn, insideZ, insideZTurn } from "@/lib/displayAxes";
 import { GuideHelpLink } from "@/components/GuideHelpLink";
@@ -228,7 +233,7 @@ import { PICTURE_FILE_ACCEPT } from "@/lib/pictureIcon";
 import { customFontList, textFontLabel } from "@/lib/textFonts";
 import { SURFACE_TEXT_FONTS } from "@/lib/surfaceTextOutline";
 import { MIN_SLOT_END_RATIO, normalizeSlotEndRatio, taperedSlotOutline } from "@/lib/slotGeometry";
-import { loftMeasures, loftMiddlesWithCount, MAX_LOFT_MIDDLES, normalizeLoftThrough, loftShapePatch, loftTiltLimit, maxLoftWall, MAX_LOFT_SEGMENTS, MIN_LOFT_TOP_WALL, MAX_LOFT_SIDES, MAX_LOFT_TWIST, MIN_LOFT_SEGMENTS, MIN_LOFT_SIDES, MIN_LOFT_SIZE, normalizeLoftOutline, type LoftMeasures } from "@/lib/loftGeometry";
+import { createLoftGeometry, loftMeasures, MAX_LOFT_MIDDLES, normalizeLoftThrough, loftShapePatch, loftTiltLimit, maxLoftWall, MAX_LOFT_SEGMENTS, MIN_LOFT_TOP_WALL, MAX_LOFT_SIDES, MAX_LOFT_TWIST, MIN_LOFT_SEGMENTS, MIN_LOFT_SIDES, MIN_LOFT_SIZE, normalizeLoftOutline, type LoftMeasures } from "@/lib/loftGeometry";
 import { MAX_KNURL_ANGLE, MIN_KNURL_ANGLE, MIN_KNURL_COUNT, MIN_KNURL_DEPTH, knurlSettings, maxKnurlChamfer, maxKnurlCount, maxKnurlDepth, maxRoundKnurlDepth, normalizeKnurlAngle, normalizeKnurlChamfer, normalizeKnurlCount, normalizeKnurlDepth, normalizeKnurlPattern } from "@/lib/knurlGeometry";
 import {
   DEFAULT_GRIDFINITY_LABEL_CORNER,
@@ -615,7 +620,26 @@ type ColorPropertyConfig = {
   onReset?: () => void;
 };
 
-type ShapePropertyConfig = RangePropertyConfig | TextPropertyConfig | SelectPropertyConfig | TogglePropertyConfig | ColorPropertyConfig;
+type LoftSvgPropertyConfig = {
+  type: "loft-svg";
+  id: string;
+  label: string;
+  value: string;
+  shape: WorkplaneShape;
+  section: LoftSvgSection;
+  sketchMode?: boolean;
+  sources?: readonly WorkplaneShape[];
+  onSelectSource?: (id:string)=>void;
+  onUpdate: ShapeInspectorUpdate;
+};
+
+type LoftStackPropertyConfig = {
+  type:"loft-stack";id:string;label:string;value:string;
+  rows:LoftSectionRow<ShapePropertyConfig>[];canAdd:boolean;
+  onAdd:()=>string|null;onRemove:(index:number)=>boolean;onMove:(from:number,to:number)=>boolean;
+};
+
+type ShapePropertyConfig = LoftStackPropertyConfig | LoftSvgPropertyConfig | RangePropertyConfig | TextPropertyConfig | SelectPropertyConfig | TogglePropertyConfig | ColorPropertyConfig;
 /**
  * `angle`: the measure typed is an angle that changes the body's form through one size (a wedge's slope, a teardrop's tip),
  * so "Keep proportions" leaves the other sizes alone; scaled along, the angle stayed as it was (#1763).
@@ -774,12 +798,18 @@ function torusSideProperties(
 
 /** What the panel shows of a body that only the panel keeps: which section of a loft (#1034) its rows are about. */
 type ShapePropertyView = {
-  loftSection: number;
-  setLoftSection: (index: number) => void;
+  sketchSources?: readonly WorkplaneShape[];
+  onSelectSketchSource?: (id:string)=>void;
+  svgSections?: ReadonlySet<string>;
+  setSvgSection?: (key:string,enabled:boolean)=>void;
+  clearSvgSections?:()=>void;
+  separateTopWall?: boolean;
+  setSeparateTopWall?: (value: boolean) => void;
+  setLoftError?: (message: string) => void;
   /** Sets a socket that has screw holes (D-Sub 9) on the opening and groups it with them, where the editor can. */
   portPresetWithScrewHoles?: (patch: Partial<WorkplaneShape>) => void;
 };
-const NO_PROPERTY_VIEW: ShapePropertyView = { loftSection: 0, setLoftSection: () => undefined };
+const NO_PROPERTY_VIEW: ShapePropertyView = {};
 
 function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeInspectorUpdate, view: ShapePropertyView = NO_PROPERTY_VIEW): ShapePropertyConfig[] {
   const baseWidth = shapeWidth(shape);
@@ -870,6 +900,7 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
   if (shape.sketchProfile) {
     return [
       ...sketchFillProperties(shape.sketchProfile, onUpdate),
+      ...(shape.sketchOperation!=="sweep"?sketchRaisedTextProperties(shape.sketchProfile,onUpdate):[]),
       { id: "length", label: t("prop.length"), value: depth, min: MIN_SHAPE_SIZE, max: 160, onChange: setDepth },
       { id: "width", label: t("prop.width"), value: width, min: MIN_SHAPE_SIZE, max: 160, onChange: setWidth },
       { id: "height", label: t("prop.height"), value: shape.height, min: MIN_SHAPE_SIZE, max: 160, onChange: setHeight },
@@ -2277,30 +2308,56 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
   if (shape.kind === "loft") {
     // Every value as the body shows it; a change keeps the bottom where it stands (#188).
     const m = loftMeasures(shape);
-    const change = (next: Partial<LoftMeasures>) => onUpdate(loftShapePatch(shape, next));
+    const change = (next: Partial<LoftMeasures>) => {
+      try {
+        const patch=loftShapePatch(shape,next);
+        const updated=loftMeasures({...shape,...patch});
+        if ((next.wall !== undefined && next.wall > updated.wall + 1e-4) || (next.topWall !== undefined && next.topWall > updated.topWall + 1e-4)) {
+          view.setLoftError?.(t("loft.wallTooThick"));return false;
+        }
+        const geometry=createLoftGeometry({...shape,...patch});geometry.dispose();
+        onUpdate(patch);
+        view.setLoftError?.(updated.wall + 1e-4 < m.wall && next.wall === undefined ? t("loft.wallReduced",{wall:updated.wall.toFixed(2)}) : "");
+        return true;
+      } catch (error) { view.setLoftError?.(error instanceof Error ? error.message : t("loft.wallTooThick")); return false; }
+    };
     const outlines = [
       { value: "round", label: t("loft.round") },
       { value: "rectangle", label: t("loft.rectangle") },
       { value: "polygon", label: t("loft.polygon") },
+      { value:"svg",label:t("loft.svg") },
+      { value:"sketch",label:t("loft.selectSketch") },
     ];
     const end = (bottom: boolean): ShapePropertyConfig[] => {
       const outline = bottom ? m.bottomOutline : m.topOutline;
       const endWidth = bottom ? m.bottomWidth : m.topWidth;
       const endDepth = bottom ? m.bottomDepth : m.topDepth;
       const name = bottom ? "Bottom" : "Top";
+      const key=bottom?"bottom":"top";
+      const sourceProfile=bottom?m.bottomSvg:m.topSvg;
+      const sketchSelected=!!view.svgSections?.has(`sketch:${key}`) || (outline==="svg"&&!!sourceProfile?.sketchId&&!view.svgSections?.has(key));
+      const svgSelected=!sketchSelected && (outline==="svg" || !!view.svgSections?.has(key));
       const properties: ShapePropertyConfig[] = [
         {
           type: "select",
           id: `loft${name}Outline`,
           label: t(bottom ? "prop.loftBottomOutline" : "prop.loftTopOutline"),
-          value: outline,
+          value: sketchSelected?"sketch":svgSelected?"svg":outline,
           options: outlines,
-          onChange: (value) => change(bottom ? { bottomOutline: normalizeLoftOutline(value) } : { topOutline: normalizeLoftOutline(value) }),
+          onChange: value=>{
+            const hasFile=bottom?m.bottomSvg:m.topSvg;
+            view.setSvgSection?.(`sketch:${key}`,value==="sketch");
+            if(value==="sketch")return;
+            view.setSvgSection?.(key,value==="svg"&&(!hasFile||!!hasFile.sketchId));
+            if(value==="svg"&&!hasFile)return;
+            change(bottom?{bottomOutline:normalizeLoftOutline(value)}:{topOutline:normalizeLoftOutline(value)});
+          },
         },
+        ...((svgSelected||sketchSelected) ? [{ sketchMode:sketchSelected,sources:view.sketchSources,onSelectSource:view.onSelectSketchSource,type:"loft-svg" as const, id:`loft${name}Svg`, label:t(bottom ? "loft.svgBottom" : "loft.svgTop"), value:"", shape, section:bottom ? "bottom" as const : "top" as const, onUpdate:(patch:Partial<WorkplaneShape>)=>{onUpdate(patch);view.setSvgSection?.(key,false);view.setSvgSection?.(`sketch:${key}`,false);view.setLoftError?.("");} }] : []),
         { id: `loft${name}Width`, label: t(bottom ? "prop.loftBottomWidth" : "prop.loftTopWidth"), value: endWidth, min: MIN_LOFT_SIZE, max: 300, onChange: (value) => change(bottom ? { bottomWidth: value } : { topWidth: value }) },
         { id: `loft${name}Depth`, label: t(bottom ? "prop.loftBottomDepth" : "prop.loftTopDepth"), value: endDepth, min: MIN_LOFT_SIZE, max: 300, onChange: (value) => change(bottom ? { bottomDepth: value } : { topDepth: value }) },
       ];
-      if (outline === "rectangle") {
+      if (outline === "rectangle" && !svgSelected) {
         properties.push({
           id: `loft${name}Corner`,
           label: t(bottom ? "prop.loftBottomCorner" : "prop.loftTopCorner"),
@@ -2311,7 +2368,7 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
           onChange: (value) => change(bottom ? { bottomCorner: value } : { topCorner: value }),
         });
       }
-      if (outline === "polygon") {
+      if (outline === "polygon" && !svgSelected) {
         properties.push({
           id: `loft${name}Sides`,
           label: t(bottom ? "prop.loftBottomSides" : "prop.loftTopSides"),
@@ -2322,6 +2379,11 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
           onChange: (value) => change(bottom ? { bottomSides: value } : { topSides: value }),
         });
       }
+      if (!bottom) properties.push(
+        { id:"height",label:t("prop.height"),value:shape.height,min:MIN_SHAPE_SIZE,max:300,onChange:setHeight },
+        { id:"loftOffsetX",label:t("prop.loftOffsetX"),value:m.offsetX,min:-150,max:150,step:.5,onChange:value=>change({offsetX:value}) },
+        { id:"loftOffsetZ",label:t("prop.loftOffsetZ"),value:m.offsetZ,min:-150,max:150,step:.5,onChange:value=>change({offsetZ:value}) },
+      );
       return properties;
     };
     /*
@@ -2329,59 +2391,46 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
      * outline, height, size and offset. They set the shape, so twist, tilt and the S-curve step aside.
      */
     const middles = m.middles;
-    const sectionRows: ShapePropertyConfig[] = [
-      {
-        id: "loftSectionCount",
-        label: t("prop.loftSectionCount"),
-        value: middles.length,
-        min: 0,
-        max: MAX_LOFT_MIDDLES,
-        step: 1,
-        hint: t("loft.sectionsHint"),
-        onChange: (value) => {
-          const next = loftMiddlesWithCount(m, value);
-          // A new section is the one the rows show next.
-          const added = next.findIndex((middle) => !middles.some((old) => Math.abs(old.at - middle.at) < 1e-9));
-          if (next.length > middles.length && added >= 0) view.setLoftSection(added);
-          change({ middles: next });
-        },
-      },
+    const middleProperties = (index:number):ShapePropertyConfig[] => {
+      const middle=middles[index];
+      const key=`middle-${index}`;
+      const sketchSelected=!!view.svgSections?.has(`sketch:${key}`) || (middle.outline==="svg"&&!!middle.svg?.sketchId&&!view.svgSections?.has(key));
+      const svgSelected=!sketchSelected && (middle.outline==="svg" || !!view.svgSections?.has(key));
+      const setMiddle=(next:Partial<typeof middle>)=>change({middles:middles.map((entry,k)=>k===index?{...entry,...next}:entry)});
+      const lower=index===0?0:middles[index-1].at, upper=index===middles.length-1?1:middles[index+1].at;
+      return [
+        { type:"select",id:"loftSectionOutline",label:t("prop.loftSectionOutline"),value:sketchSelected?"sketch":svgSelected?"svg":middle.outline,options:outlines,onChange:value=>{
+          view.setSvgSection?.(`sketch:${key}`,value==="sketch");
+          if(value==="sketch")return;
+          view.setSvgSection?.(key,value==="svg"&&(!middle.svg||!!middle.svg.sketchId));
+          if(value==="svg"&&!middle.svg)return;
+          setMiddle({outline:normalizeLoftOutline(value)});
+        } },
+        ...((svgSelected||sketchSelected) ? [{ sketchMode:sketchSelected,sources:view.sketchSources,onSelectSource:view.onSelectSketchSource,type:"loft-svg" as const,id:`loftSectionSvg-${index}-${middle.at}`,label:t("loft.svgSection",{n:index+1}),value:"",shape,section:index,onUpdate:(patch:Partial<WorkplaneShape>)=>{onUpdate(patch);view.setSvgSection?.(key,false);view.setSvgSection?.(`sketch:${key}`,false);view.setLoftError?.("");} }] : []),
+        { id:"loftSectionHeight",label:t("prop.loftSectionHeight"),value:Math.round(middle.at*shape.height*100)/100,min:(lower+.01)*shape.height,max:(upper-.01)*shape.height,step:.1,hint:t("loft.sectionHeightHint"),onChange:value=>setMiddle({at:value/Math.max(.01,shape.height)}) },
+        { id:"loftSectionWidth",label:t("prop.loftSectionWidth"),value:middle.width,min:MIN_LOFT_SIZE,max:300,onChange:value=>setMiddle({width:value}) },
+        { id:"loftSectionDepth",label:t("prop.loftSectionDepth"),value:middle.depth,min:MIN_LOFT_SIZE,max:300,onChange:value=>setMiddle({depth:value}) },
+        ...(middle.outline==="rectangle" && !svgSelected?[{id:"loftSectionCorner",label:t("prop.loftSectionCorner"),value:middle.corner,min:0,max:Math.min(middle.width,middle.depth)/2,step:.1,onChange:(value:number)=>setMiddle({corner:value})}]:[]),
+        ...(middle.outline==="polygon" && !svgSelected?[{id:"loftSectionSides",label:t("prop.loftSectionSides"),value:middle.sides,min:MIN_LOFT_SIDES,max:MAX_LOFT_SIDES,step:1,onChange:(value:number)=>setMiddle({sides:value})}]:[]),
+        { id:"loftSectionOffsetX",label:t("prop.loftSectionOffsetX"),value:middle.offsetX,min:-150,max:150,step:.5,onChange:value=>setMiddle({offsetX:value}) },
+        { id:"loftSectionOffsetZ",label:t("prop.loftSectionOffsetZ"),value:middle.offsetZ,min:-150,max:150,step:.5,onChange:value=>setMiddle({offsetZ:value}) },
+      ];
+    };
+    const summary=(outline:string,svg:string|undefined,width:number,depth:number,at:number)=>t("loft.stackSummary",{
+      outline:outline==="svg"?svg??t("loft.svg"):outlines.find(o=>o.value===outline)?.label??outline,
+      width:Number(width.toFixed(2)),depth:Number(depth.toFixed(2)),height:Number((at*shape.height).toFixed(2)),
+    });
+    const rows:LoftSectionRow<ShapePropertyConfig>[]=[
+      {id:"top",title:t("loft.stackTop"),summary:summary(m.topOutline,m.topSvg?.name,m.topWidth,m.topDepth,1),properties:end(false),removable:false},
+      ...middles.map((middle,index)=>({id:`middle-${index}`,title:t("loft.sectionNumber",{n:index+1}),summary:summary(middle.outline,middle.svg?.name,middle.width,middle.depth,middle.at),properties:middleProperties(index),removable:true})).reverse(),
+      {id:"bottom",title:t("loft.stackBottom"),summary:summary(m.bottomOutline,m.bottomSvg?.name,m.bottomWidth,m.bottomDepth,0),properties:end(true),removable:false},
     ];
-    if (middles.length) {
-      // One section at a time, like the segments of a bent tube: a list of twelve would be long.
-      const index = Math.min(Math.max(0, view.loftSection), middles.length - 1);
-      const middle = middles[index];
-      const setMiddle = (next: Partial<(typeof middles)[number]>) => change({ middles: middles.map((entry, k) => (k === index ? { ...entry, ...next } : entry)) });
-      sectionRows.push(
-        {
-          type: "select",
-          id: "loftThrough",
-          label: t("prop.loftThrough"),
-          value: m.through,
-          options: [{ value: "smooth", label: t("loft.throughSmooth") }, { value: "straight", label: t("loft.throughStraight") }],
-          hint: t("loft.throughHint"),
-          onChange: (value) => change({ through: normalizeLoftThrough(value) }),
-        },
-        {
-          type: "select",
-          id: "loftSection",
-          label: t("prop.loftSection"),
-          value: String(index),
-          options: middles.map((_entry, k) => ({ value: String(k), label: t("loft.sectionNumber", { n: k + 1 }) })),
-          onChange: (value) => view.setLoftSection(Number(value)),
-        },
-        { type: "select", id: "loftSectionOutline", label: t("prop.loftSectionOutline"), value: middle.outline, options: outlines, onChange: (value) => setMiddle({ outline: normalizeLoftOutline(value) }) },
-        { id: "loftSectionHeight", label: t("prop.loftSectionHeight"), value: Math.round(middle.at * shape.height * 100) / 100, min: 0.1, max: Math.max(0.2, shape.height - 0.1), step: 0.5, hint: t("loft.sectionHeightHint"), onChange: (value) => setMiddle({ at: value / Math.max(0.01, shape.height) }) },
-        { id: "loftSectionWidth", label: t("prop.loftSectionWidth"), value: middle.width, min: MIN_LOFT_SIZE, max: 300, onChange: (value) => setMiddle({ width: value }) },
-        { id: "loftSectionDepth", label: t("prop.loftSectionDepth"), value: middle.depth, min: MIN_LOFT_SIZE, max: 300, onChange: (value) => setMiddle({ depth: value }) },
-      );
-      if (middle.outline === "rectangle") sectionRows.push({ id: "loftSectionCorner", label: t("prop.loftSectionCorner"), value: middle.corner, min: 0, max: Math.max(0.1, Math.min(middle.width, middle.depth) / 2), step: 0.1, onChange: (value) => setMiddle({ corner: value }) });
-      if (middle.outline === "polygon") sectionRows.push({ id: "loftSectionSides", label: t("prop.loftSectionSides"), value: middle.sides, min: MIN_LOFT_SIDES, max: MAX_LOFT_SIDES, step: 1, onChange: (value) => setMiddle({ sides: value }) });
-      sectionRows.push(
-        { id: "loftSectionOffsetX", label: t("prop.loftSectionOffsetX"), value: middle.offsetX, min: -150, max: 150, step: 0.5, onChange: (value) => setMiddle({ offsetX: value }) },
-        { id: "loftSectionOffsetZ", label: t("prop.loftSectionOffsetZ"), value: middle.offsetZ, min: -150, max: 150, step: 0.5, onChange: (value) => setMiddle({ offsetZ: value }) },
-      );
-    }
+    const stack:LoftStackPropertyConfig={type:"loft-stack",id:`loftStack-${shape.id}`,label:t("loft.stackTitle"),value:"",rows,canAdd:middles.length<MAX_LOFT_MIDDLES,
+      onAdd:()=>{const {middles:next,added}=addLoftSection(m);if(!added||!change({middles:next}))return null;view.clearSvgSections?.();return `middle-${next.indexOf(added)}`;},
+      onRemove:index=>{if(!change({middles:middles.filter((_,k)=>k!==middles.length-index)}))return false;view.clearSvgSections?.();return true;},
+      onMove:(from,to)=>{if(!change(reorderLoftSections(m,rows.length-1-from,rows.length-1-to)))return false;view.clearSvgSections?.();return true;},
+    };
+    const sectionRows:ShapePropertyConfig[]=middles.length?[{type:"select",id:"loftThrough",label:t("prop.loftThrough"),value:m.through,options:[{value:"smooth",label:t("loft.throughSmooth")},{value:"straight",label:t("loft.throughStraight")}],hint:t("loft.throughHint"),onChange:value=>change({through:normalizeLoftThrough(value)})}]:[];
     const turns: ShapePropertyConfig[] = middles.length ? [] : [
       // The sections turn and tilt evenly on the way up (#205); a tilt keeps the top above the plate.
       { id: "loftTwist", label: t("prop.loftTwist"), value: m.twist, min: -MAX_LOFT_TWIST, max: MAX_LOFT_TWIST, step: 5, onChange: (value) => change({ twist: value }) },
@@ -2395,22 +2444,19 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
     const rounded = m.bottomOutline === "round" || m.topOutline === "round" || m.bottomCorner > 0 || m.topCorner > 0
       || middles.some((middle) => middle.outline === "round" || (middle.outline === "rectangle" && middle.corner > 0));
     return [
-      ...end(true),
+      stack,
       ...sectionRows,
-      ...end(false),
-      { id: "height", label: t("prop.height"), value: shape.height, min: MIN_SHAPE_SIZE, max: 300, onChange: setHeight },
-      { id: "loftOffsetX", label: t("prop.loftOffsetX"), value: m.offsetX, min: -150, max: 150, step: 0.5, onChange: (value) => change({ offsetX: value }) },
-      { id: "loftOffsetZ", label: t("prop.loftOffsetZ"), value: m.offsetZ, min: -150, max: 150, step: 0.5, onChange: (value) => change({ offsetZ: value }) },
-      { id: "loftWall", label: t("prop.loftWall"), value: m.wall, min: 0, max: Math.max(0.1, maxLoftWall(m)), step: 0.1, onChange: (value) => change({ wall: value }) },
-      // A tube can be thicker at one end than at the other (Forum 624069); a solid body has no wall to set.
-      ...(m.wall > 0
-        ? [{ id: "loftTopWall", label: t("prop.loftTopWall"), value: m.topWall, min: MIN_LOFT_TOP_WALL, max: Math.max(MIN_LOFT_TOP_WALL, maxLoftWall(m)), step: 0.1, hint: t("loft.topWallHint"), onChange: (value: number) => change({ topWall: value }) }]
-        : []),
+      { type:"toggle", id:"loftHollow",label:t("loft.hollow"),value:m.wall>0,onChange:(hollow)=>change({wall:hollow?1:0,topWall:hollow?1:0}) },
+      ...(m.wall>0 ? [
+        { id:"loftWall",label:t("loft.wallThickness"),value:m.wall,min:MIN_LOFT_TOP_WALL,max:Math.max(MIN_LOFT_TOP_WALL,maxLoftWall(m)),step:.1,hint:t("loft.wallHint"),onChange:(value:number)=>change({wall:value}) },
+        { type:"toggle" as const,id:"loftSeparateTopWall",label:t("loft.separateTopWall"),value:!!view.separateTopWall || Math.abs(m.topWall-m.wall)>1e-6,onChange:(value:boolean)=>{view.setSeparateTopWall?.(value);if(!value)change({topWall:m.wall});} },
+        ...((view.separateTopWall || Math.abs(m.topWall-m.wall)>1e-6) ? [{ id:"loftTopWall",label:t("loft.topWallThickness"),value:m.topWall,min:MIN_LOFT_TOP_WALL,max:Math.max(MIN_LOFT_TOP_WALL,maxLoftWall(m)),step:.1,hint:t("loft.topWallHint"),onChange:(value:number)=>change({topWall:value}) }] : []),
+      ] : []),
       ...turns,
       ...tilts,
       // How finely a circle or a rounded corner is drawn in the view and in the exports (#755); a polygon has its own sides.
-      ...(rounded
-        ? [{ id: "loftSegments", label: t("prop.loftSegments"), value: m.segments, min: MIN_LOFT_SEGMENTS, max: MAX_LOFT_SEGMENTS, step: 1, hint: t("loft.segmentsHint"), onChange: (value: number) => change({ segments: value }) }]
+      ...(rounded || m.bottomOutline === "svg" || m.topOutline === "svg" || m.middles.some(section=>section.outline === "svg")
+        ? [{ id: "loftSegments", label: t("prop.quality"), value: m.segments, min: MIN_LOFT_SEGMENTS, max: MAX_LOFT_SEGMENTS, step: 1, hint: t("loft.segmentsHint"), onChange: (value: number) => change({ segments: value }) }]
         : []),
     ];
   }
@@ -4319,6 +4365,20 @@ function textFillProperties(shape: WorkplaneShape, onUpdate: ShapeInspectorUpdat
  * fill modes): the area, a stroke outside, inside or centred on its lines with a width and
  * corners, and the silhouette that leaves its holes out. The editor builds the body again.
  */
+function sketchRaisedTextProperties(profile:SketchProfile,onUpdate:ShapeInspectorUpdate):ShapePropertyConfig[]{
+  return (profile.texts??[]).filter(text=>text.connections?.mode==='backer').flatMap(text=>{
+    const name=text.content.length>24?text.content.slice(0,24)+'…':text.content;
+    const update=(raised:typeof text.raised,padding?:number)=>onUpdate({sketchProfile:{...profile,texts:profile.texts!.map(item=>item.id===text.id?{...item,raised,...(padding!==undefined?{connections:{...item.connections!,padding}}:{})}:item)}});
+    const fields:ShapePropertyConfig[]=[{type:'toggle',id:`raised-${text.id}`,label:t('sketchText.raisedFor',{name}),value:Boolean(text.raised),onChange:value=>update(value?{backerThickness:1.5,letterHeight:2}:undefined)}];
+    if(text.raised)fields.push(
+      {id:`backer-height-${text.id}`,label:t('sketchText.backerThickness'),hint:t('sketchText.raisedHint'),value:text.raised.backerThickness,min:.2,max:100,step:.1,onChange:value=>update({...text.raised!,backerThickness:value})},
+      {id:`letter-height-${text.id}`,label:t('sketchText.raisedHeight'),value:text.raised.letterHeight,min:.2,max:100,step:.1,onChange:value=>update({...text.raised!,letterHeight:value})},
+      {id:`backer-padding-${text.id}`,label:t('sketchText.backerPadding'),value:text.connections!.padding,min:.1,max:20,step:.1,onChange:value=>update(text.raised,value)}
+    );
+    return fields;
+  });
+}
+
 function sketchFillProperties(profile: SketchProfile, onUpdate: ShapeInspectorUpdate): ShapePropertyConfig[] {
   const stroke = normalizeSketchStroke(profile.stroke);
   const update = (patch: Partial<SketchProfile>) => {
@@ -4459,7 +4519,7 @@ function getShapeProperties(shape: WorkplaneShape, onUpdate: ShapeInspectorUpdat
   const properties = withOrientedMeasures(own, oriented, MEASURE_LABELS());
   if (customLimit === undefined) return properties;
   return properties.map((property) => {
-    if (property.type === "text" || property.type === "select") return property;
+    if (property.type === "text" || property.type === "select" || property.type === "loft-svg" || property.type === "loft-stack") return property;
     if (["length", "width", "height", "diameter", "threadLength"].includes(property.id)) return { ...property, max: customLimit };
     if (["topRadius", "baseRadius"].includes(property.id)) return { ...property, max: customLimit / 2 };
     return property;
@@ -4474,6 +4534,8 @@ const SliderSnapContext = createContext(0);
 
 export function ShapeInspector({
   shape,
+  sketchSources,
+  onSelectSketchSource,
   snap,
   snapOpen,
   workspace,
@@ -4522,6 +4584,8 @@ export function ShapeInspector({
   onShapeDefaultsChange,
 }: {
   shape: WorkplaneShape;
+  sketchSources?: readonly WorkplaneShape[];
+  onSelectSketchSource?: (id:string)=>void;
   snap: GridSize;
   snapOpen: boolean;
   workspace: WorkplaneWorkspaceSettings;
@@ -4600,6 +4664,7 @@ export function ShapeInspector({
   onShapeDefaultsChange?: (kind: WorkplaneShape["kind"], entry: ShapeCustomization | null) => void;
 }) {
   useLanguage();
+  const variableContext=useContext(ProjectVariablesContext);
   const solidColor = shape.color;
   // Picking one colour for a group means one colour for all of it, as in similar tools.
   const singleColorPatch: Partial<WorkplaneShape> = canToggleGroupColors(shape) ? { multicolor: false } : {};
@@ -4622,13 +4687,18 @@ export function ShapeInspector({
   const onUpdate: ShapeInspectorUpdate = (patch, options) => {
     const pending = pendingFormulaRef.current;
     pendingFormulaRef.current = null;
-    onUpdateShape(pending ? { ...patch, formulas: withFieldFormula(shape.formulas, pending.id, pending.text) } : patch, options);
+    const bindings=pending&&shape.parameterBindings?{...shape.parameterBindings}:undefined;
+    if(bindings&&pending)delete bindings[pending.id];
+    onUpdateShape(pending ? { ...patch,...(bindings?{parameterBindings:Object.keys(bindings).length?bindings:undefined}:{}), formulas: withFieldFormula(shape.formulas, pending.id, pending.text) } : patch, options);
   };
   // The section of a loft the rows are about (#1034), back to the first for another body.
-  const [loftSection, setLoftSection] = useState(0);
-  useEffect(() => setLoftSection(0), [shape.id]);
+  const [separateTopWall,setSeparateTopWall] = useState(false);
+  const [svgSections,setSvgSections]=useState<Set<string>>(()=>new Set());
+  const setSvgSection=(key:string,enabled:boolean)=>setSvgSections(before=>{const next=new Set(before);if(enabled)next.add(key);else next.delete(key);return next;});
+  const [loftError,setLoftError] = useState("");
+  useEffect(()=>{setSeparateTopWall(false);setSvgSections(new Set());setLoftError("");},[shape.id]);
   const printerPlay = usePrinterPlay();
-  const properties = withFitTestNotes(getShapeProperties(shape, onUpdate, workspace, { loftSection, setLoftSection, portPresetWithScrewHoles: onPortPresetWithScrewHoles }), shape.kind, printerPlay);
+  const properties = withFitTestNotes(getShapeProperties(shape, onUpdate, workspace, { sketchSources,onSelectSketchSource,svgSections,setSvgSection,clearSvgSections:()=>setSvgSections(new Set()),separateTopWall, setSeparateTopWall, setLoftError, portPresetWithScrewHoles: onPortPresetWithScrewHoles }), shape.kind, printerPlay);
   const tiltedMeasures = orientedMeasures(shape).kind === "tilted";
   // A shape with settings of its own that got a fillet or chamfer shows only its measures now; the note names it
   // and says how its settings come back (#1689). A plain box had nothing more, so it gets no note.
@@ -5043,6 +5113,7 @@ export function ShapeInspector({
   }, [editingName]);
 
   return (
+    <ProjectVariablesContext.Provider value={{...variableContext,shape,allowPosition:!positionAtEdge}}>
     <SliderSnapContext.Provider value={snapGridStep(snap)}>
     <aside
       ref={inspectorRef}
@@ -5360,7 +5431,8 @@ export function ShapeInspector({
           <ChevronUp className={propertiesOpen ? "" : "collapsed"} size={25} strokeWidth={2.8} />
         </button>
         {propertiesOpen ? (
-          <div className="property-list" id={`properties-${shape.id}`}>
+          <div className={`property-list${shape.kind === "loft" ? " loft-properties" : ""}`} id={`properties-${shape.id}`}>
+            {shape.kind === "loft" && loftError ? <p className="loft-edit-error" role="alert">{loftError}</p> : null}
             {gearType ? (
               <GearTypeSelector
                 value={gearType}
@@ -5855,6 +5927,7 @@ export function ShapeInspector({
       ) : null}
     </aside>
     </SliderSnapContext.Provider>
+    </ProjectVariablesContext.Provider>
   );
 }
 
@@ -8204,6 +8277,13 @@ function ShapePropertyRows({
   onInteractionActiveChange?: (active: boolean) => void;
 }) {
   const rows = properties.map((property) => {
+    if (property.type === "loft-stack") {
+      return <LoftSectionStack key={property.id} rows={property.rows} canAdd={property.canAdd} disabled={disabled} onAdd={property.onAdd} onRemove={property.onRemove} onMove={property.onMove}
+        renderRows={rows=><ShapePropertyRows properties={rows} workspace={workspace} disabled={disabled} onInteractionActiveChange={onInteractionActiveChange} />} />;
+    }
+    if (property.type === "loft-svg") {
+      return <LoftSvgControls key={`${property.shape.id}-${property.id}`} shape={property.shape} section={property.section} sketchMode={property.sketchMode} sources={property.sources} onSelectSource={property.onSelectSource} disabled={disabled} onUpdate={property.onUpdate} />;
+    }
     if (property.type === "text") {
       return <TextProperty {...property} key={property.id} disabled={disabled} onInteractionActiveChange={onInteractionActiveChange} />;
     }
@@ -8590,6 +8670,10 @@ function RangeProperty({
   onFormula,
   onInteractionActiveChange,
 }: RangePropertyConfig & { workspace: WorkplaneWorkspaceSettings; disabled?: boolean; onReset?: () => void; onDefault?: () => void; formula?: string; onFormula?: (text: string | null | undefined) => void; onInteractionActiveChange?: (active: boolean) => void }) {
+  const parameters=useContext(ProjectVariablesContext);
+  const driven=parameters.shape?.parameterBindings?.[id];
+  const canBind=(!id.startsWith("position")||parameters.allowPosition!==false)&&!!parameters.shape&&supportsParameters(parameters.shape)&&PARAMETER_FIELDS.includes(id as typeof PARAMETER_FIELDS[number])&&!!parameters.bind;
+  const [expressionError,setExpressionError]=useState("");
   const holdInteraction = useInteractionHold(onInteractionActiveChange);
   const snapStepMm = useContext(SliderSnapContext);
   const draggingSliderRef = useRef(false);
@@ -8632,7 +8716,7 @@ function RangeProperty({
   // The calculation the field was last set from comes back when it is entered (#180), as long as
   // the value still equals it; a value changed by a handle or the slider shows the number again.
   const shownFormula = formulaMatchesValue(formula, controlValue) ? formula : undefined;
-  const openingDraft = () => shownFormula ?? formatShown(controlValue);
+  const openingDraft = () => driven?.expression ?? shownFormula ?? formatShown(controlValue);
   const openedWithRef = useRef<string | null>(null);
   const commitDraft = () => {
     // Leaving the field untouched keeps the exact value, not its rounded reading - and its formula.
@@ -8641,6 +8725,11 @@ function RangeProperty({
       holdInteraction(false);
       return;
     }
+    if(canBind && /(?:^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*/.test(draft)) {
+      try {parameters.bind!(parameters.shape!.id,id,draft);setExpressionError("");setEditing(false);holdInteraction(false);}catch(error){setExpressionError(error instanceof Error?error.message:String(error));}
+      return;
+    }
+    setExpressionError("");
     const next = RELATIVE_SIZE_PROPERTY_IDS.has(id)
       ? resolveMeasurementInput(draft, controlValue)
       : parseMeasurementInput(draft);
@@ -8870,7 +8959,9 @@ function RangeProperty({
     </label>
   );
   // Outside the label, so a click on the words does not jump into the field.
-  return hint || note ? <>{row}{note ? <p className="property-hint">{note}</p> : null}{hint ? <p className="property-hint">{hint}</p> : null}</> : row;
+  return hint || note || driven || expressionError ? <>{row}{note ? <p className="property-hint">{note}</p> : null}{driven ? <small className="variable-driven"><button type="button" onClick={parameters.open}>ƒ {driven.expression}</button></small> : null}
+      {expressionError ? <p role="alert">{expressionError}</p>:null}
+      {hint ? <p className="property-hint">{hint}</p> : null}</> : row;
 }
 
 /**
@@ -9405,3 +9496,15 @@ export function SelectionInspector({
     </aside>
   );
 }
+
+export function projectParameterPatch(shape:WorkplaneShape,field:string,value:number,workspace:WorkplaneWorkspaceSettings):Partial<WorkplaneShape> {
+ if(!supportsParameters(shape)||!Number.isFinite(value))throw Error(t("variables.unsupported"));
+ if(field.startsWith("position")){if(Math.abs(value)>POSITION_TYPED_LIMIT)throw Error(t("variables.positionRange"));return field==="positionX"?{x:value+plateOffsetOfShape(workspace,shape)}:field==="positionY"?{z:insideZ(value)}:{elevation:value-undersideOffset(shape)};}
+ if(value<MIN_SHAPE_SIZE||value>1000000)throw Error(t("variables.dimensionRange"));
+ let patch:Partial<WorkplaneShape>|undefined;
+ const property=getShapeProperties(shape,next=>{patch=next;},workspace).find(p=>p.id===field);
+ if(!property||property.type==="select"||property.type==="text"||property.type==="toggle"||property.type==="loft-svg"||property.type==="loft-stack"||property.type==="color")throw Error(t("variables.unsupported"));
+ property.onChange(value);if(!patch)throw Error(t("variables.cannotUpdate"));return patch;
+}
+
+export function projectParameterValue(shape:WorkplaneShape,field:string,workspace:WorkplaneWorkspaceSettings){return field==="positionX"?shape.x-plateOffsetOfShape(workspace,shape):field==="positionY"?displayY(shape.z):field==="positionZ"?(shape.elevation??0)+undersideOffset(shape):parameterValue(shape,field);}

@@ -1,4 +1,5 @@
 "use client";
+import {ProjectVariablesContext} from "@/components/workplane/ProjectVariablesContext";
 import { polygonCornerDragPatch } from "@/lib/roundedPolygonGeometry";
 import { holdsShapeLock } from "@/lib/shapeLock";
 import type { TextBlockOptions } from "@/lib/textBlock";
@@ -6,7 +7,7 @@ import type { SurfaceTextureFace, SurfaceTextureRegion, SurfaceTextureSettings }
 import { markEscapeHandled } from "@/lib/escapeHandled";
 import { ArrowDownToLine, Check, ChevronLeft, Crosshair, Cuboid, Download, Eye, EyeOff, FlipHorizontal, GripVertical, Home, Layers, Minus, Move, MousePointer2, PanelsTopLeft, Pointer, ScanEye, PencilLine, PictureInPicture2, Plus, Rotate3d, RotateCcw, RotateCw, Ruler, RulerDimensionLine, Scaling, Slice, Spline, Trash2, X } from "lucide-react";
 import { loadTouchHandleMode, nextTouchHandleMode, saveTouchHandleMode, touchModeMovesBody, type TouchHandleMode } from "@/lib/touchHandleMode";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type DragEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode, type SetStateAction, type WheelEvent as ReactWheelEvent } from "react";
+import { useContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type DragEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode, type SetStateAction, type WheelEvent as ReactWheelEvent } from "react";
 import { boxEdgeTargets, edgeSnapGuide, objectSnapOffset, shiftSnapBox, snapResizeEdge, type EdgeSnapTarget, type ObjectSnapGuide, type SnapBox } from "@/lib/objectSnap";
 import { dragReach } from "@/lib/dragReach";
 import { useMovablePanel, type MovablePanelOptions } from "@/lib/useMovablePanel";
@@ -1748,6 +1749,7 @@ export function WorkplaneViewport({
   onSectionContours,
   onSectionBodies,
 }: WorkplaneViewportProps) {
+  const parameters=useContext(ProjectVariablesContext);
   const [snapOpen, setSnapOpen] = useState(false);
   // The snap menu a short middle click opens at the pointer (Discussion #1439).
   const [snapMenuAt, setSnapMenuAt] = useState<{ x: number; y: number } | null>(null);
@@ -5339,7 +5341,7 @@ export function WorkplaneViewport({
     setPinnedMeasureKey(mark.handleKey);
     // The height above the plate, shown with the other sizes (#979), keeps its calculation as the arrow's box does.
     const formula = mark.axis === "elevation" ? elevationFormulaFor(parseMeasureMm(mark.label)) : formulaForDimensionMark(mark);
-    setEditingDimension({ key: mark.key, axis: mark.axis, x: mark.labelX, y: mark.labelY, value: formula ?? mark.label });
+    setEditingDimension({ key: mark.key, axis: mark.axis, x: mark.labelX, y: mark.labelY, value: shapesRef.current.find(s=>s.id===id)?.parameterBindings?.[mark.axis==="depth"?"length":mark.axis==="elevation"?"positionZ":mark.axis]?.expression ?? formula ?? mark.label });
   }, [elevationFormulaFor, formulaForDimensionMark, rememberResizeAnchor]);
 
   const beginLiftEdit = useCallback((handleKey: string, x: number, y: number) => {
@@ -5366,7 +5368,7 @@ export function WorkplaneViewport({
       axis: "elevation",
       x: clamp(editX, 44, Math.max(44, (transformOverlayRef.current?.width ?? 900) - 44)),
       y: clamp(editY, 34, Math.max(34, (transformOverlayRef.current?.height ?? 600) - 34)),
-      value: elevationFormulaFor(elevation) ?? formatMeasure(elevation, workspaceRef.current.accuracy),
+      value: selectedIdsRef.current.length===1 ? shapesRef.current.find(s=>s.id===selectedIdsRef.current[0])?.parameterBindings?.positionZ?.expression ?? elevationFormulaFor(elevation) ?? formatMeasure(elevation, workspaceRef.current.accuracy) : formatMeasure(elevation,workspaceRef.current.accuracy),
     });
   }, [elevationFormulaFor]);
 
@@ -5466,7 +5468,9 @@ export function WorkplaneViewport({
     const patch = pulleySizedPatch(shape, sized);
     // The calculation rides along with the size it set, in the same change (#180); a plain number clears it.
     const formula = formulaToRemember(text);
-    return shape.formulas || formula ? { ...patch, formulas: withFieldFormula(shape.formulas, DIMENSION_FORMULA_FIELDS[axis], formula) } : patch;
+    const field=axis==='depth'?'length':axis;
+    const bindings={...shape.parameterBindings};delete bindings[field];
+    return {...patch,...(shape.formulas||formula?{formulas:withFieldFormula(shape.formulas,DIMENSION_FORMULA_FIELDS[axis],formula)}:{}),...(shape.parameterBindings?{parameterBindings:Object.keys(bindings).length?bindings:undefined}:{})};
   }, [dimensionSizePatchFor]);
 
   // Width, depth or height typed for several bodies at once (#259). The box shows the size of the
@@ -5533,6 +5537,14 @@ export function WorkplaneViewport({
       setEditingDimension(null);
       return;
     }
+    if (/(?:^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*/.test(edit.value) && !Number.isFinite(parseMeasureMm(edit.value))) {
+      try {
+        if(selectedIdsRef.current.length!==1||!parameters.bind)throw Error(t("variables.unsupported"));
+        parameters.bind(id,edit.axis==='depth'?'length':edit.axis==='elevation'?'positionZ':edit.axis,edit.value);
+        setEditingDimension(null);setPinnedMeasureKey(null);
+      } catch(error){onNotice?.(error instanceof Error?error.message:String(error));}
+      return;
+    }
     if (edit.axis === "elevation") {
       const value = parseMeasureMm(edit.value);
       if (Number.isFinite(value)) {
@@ -5552,7 +5564,9 @@ export function WorkplaneViewport({
           if (selectedShape) {
             const nextCenter = shapeCenter(selectedShape).addScaledVector(axis, delta);
             const formula = selectedIdsRef.current.length === 1 ? formulaToRemember(edit.value) : null;
+            const bindings={...selectedShape.parameterBindings};delete bindings.positionZ;
             onUpdateShape(selectedId, {
+              ...(selectedShape.parameterBindings?{parameterBindings:Object.keys(bindings).length?bindings:undefined}:{}),
               x: cleanNearZero(nextCenter.x, 0.0005),
               z: cleanNearZero(nextCenter.z, 0.0005),
               elevation: cleanNearZero(clamp(nextCenter.y - selectedShape.height / 2, MIN_ELEVATION, MAX_ELEVATION), 0.0005),
@@ -5574,7 +5588,7 @@ export function WorkplaneViewport({
     }
     setEditingDimension(null);
     setPinnedMeasureKey(null);
-  }, [applyTypedSelectionSize, dimensionPatchFor, editingDimension, onInteractionActiveChange, onUpdateShape]);
+  }, [applyTypedSelectionSize, dimensionPatchFor, editingDimension, onInteractionActiveChange, onUpdateShape,parameters,onNotice]);
 
   /**
    * Tab in a dimension box (#300): the value is kept and the next box opens - width, depth, height, and round
@@ -9476,6 +9490,7 @@ export function WorkplaneViewport({
               // Q leaves out what shows by itself; a handle pointed at still shows its size.
               box={dimensionsHidden ? { ...transformOverlay, alwaysVisibleDimensionKeys: [] } : transformOverlay}
               measureKey={pinnedMeasureKey ?? hoverMeasureKey}
+              dimensionExpression={axis=>selectedShape?.parameterBindings?.[axis==='depth'?'length':axis==='elevation'?'positionZ':axis]?.expression}
               editingDimension={editingDimension}
               editingCorner={editingCorner}
               editingRotation={editingRotation}
@@ -9527,7 +9542,6 @@ export function WorkplaneViewport({
               // die Hand zwischendurch nie lange genug stillstand.
               onTextCommit={(id) => onNoteUpdate?.(id, {})}
               onDetach={(id) => onNoteUpdate?.(id, { anchor: undefined })}
-              onForAiChange={(id, forAi) => onNoteUpdate?.(id, { forAi })}
               onRemove={(id) => onNoteRemove?.(id)}
               onEditingIdChange={setEditingNoteId}
               workspace={workspace}
@@ -9673,6 +9687,8 @@ export function WorkplaneViewport({
 
       {selectedShape && !splitActive && !modifierActive && !tapeMode && !tapeDeleteMode && !tapeMoveMode ? (
         <ShapeInspector
+          sketchSources={shapes}
+          onSelectSketchSource={id=>onSelectShape(id)}
           shape={shapeWithParametricSource(selectedShape)}
           snap={snap}
           snapOpen={snapOpen}

@@ -213,7 +213,14 @@ function strokeClosedPaths(runtime: ManifoldToplevel, keep: Keep, loops: Vec[][]
 export function strokedSketchProfile(runtime: ManifoldToplevel, profile: SketchProfile, options: { clipToRevolveSide?: boolean } = {}): SketchProfile | null {
   const stroke = normalizeSketchStroke(profile.stroke);
   if (!stroke) return null;
-  const paths = orderedCadSketchPaths(profile);
+  // Live lettering already has its own fill/outline applied. Only the source sketch gets the global stroke.
+  const textSegments = new Set(profile.texts?.flatMap(text => text.segmentIds));
+  const paths = orderedCadSketchPaths({...profile,segments:profile.segments.filter(segment=>!textSegments.has(segment.id))});
+  const textLoops = (profile.texts??[]).map(text=>{
+    const ids=new Set(text.segmentIds);
+    return orderedCadSketchPaths({...profile,segments:profile.segments.filter(segment=>ids.has(segment.id))})
+      .filter(path=>path.closed).map(sampledPath).filter(loop=>loop.length>=3);
+  });
   const closed = paths.filter((path) => path.closed).map(sampledPath).filter((loop) => loop.length >= 3);
   const open = paths.filter((path) => !path.closed).map(sampledPath).filter((line) => line.length >= 2);
   const made: CrossSection[] = [];
@@ -223,7 +230,7 @@ export function strokedSketchProfile(runtime: ManifoldToplevel, profile: SketchP
   };
   let polygons: ReturnType<CrossSection["toPolygons"]>;
   try {
-    const parts = [strokeClosedPaths(runtime, keep, closed, stroke), ...open.map((line) => strokeOpenPath(runtime, keep, line, stroke))]
+    const parts = [strokeClosedPaths(runtime, keep, closed, stroke), ...open.map((line) => strokeOpenPath(runtime, keep, line, stroke)), ...textLoops.filter(loops=>loops.length).map(loops=>keep(new runtime.CrossSection(loops.map(toPolygon), "EvenOdd")))]
       .filter((part): part is CrossSection => Boolean(part));
     if (!parts.length) return null;
     const stroked = keep(keep(runtime.CrossSection.union(parts)).simplify(1e-6));

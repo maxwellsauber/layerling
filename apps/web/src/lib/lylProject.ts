@@ -1,3 +1,6 @@
+import { validateProjectVariables, validateVariableExpression, resolveProjectVariables, evaluateVariableExpression, PARAMETER_FIELDS } from "@/lib/projectVariables";
+import type { ProjectVariable } from "@/lib/projectVariables";
+import { normalizeLoftSvgProfile } from "@/lib/loftSvgGeometry";
 import type { SketchProfile } from "@/types/layerling";
 import { updateSketchOffsets } from "@/lib/sketchOffsets";
 import { checkedTypefaceData, customFontName, isCustomFontId, textCharacters, typefaceSubset } from "@/lib/customFonts";
@@ -142,6 +145,7 @@ export type LylShapeNodeV1 = {
 };
 
 export type LylStateV1 = {
+  variables?: ProjectVariable[];
   id: string;
   rootNodeIds: string[];
   nodes: LylShapeNodeV1[];
@@ -183,6 +187,7 @@ function embeddedFonts(states: WorkplaneShape[][]): LylFontV1[] {
   };
   const visit = (shape: WorkplaneShape) => {
     if (isCustomFontId(shape.font) && shape.kind === "text") use(shape.font, [shape.text ?? "TEXT"]);
+    for (const text of shape.sketchProfile?.texts ?? []) if (isCustomFontId(text.font)) use(text.font, ["H", text.content]);
     // A bin's letters (#1308) and the H their size is measured on: without it they would come out another size elsewhere.
     if (isCustomFontId(shape.gridfinityLabelFont) && shape.kind === "gridfinity") {
       use(shape.gridfinityLabelFont, ["H", ...Object.values(GRIDFINITY_LABEL_TEXT_KEYS).map((key) => shape[key] ?? ""), ...(shape.gridfinityCompartmentLabels ?? []).map((label) => label.text ?? "")]);
@@ -830,6 +835,7 @@ async function serializeShapeNode(
       return { ...imageDefinition, assetId: asset.id };
     }));
     definition.sketchProfile = {
+      ...(sketchProfile.texts?.length ? { texts: sketchProfile.texts } : {}),
       points: sketchProfile.points,
       segments: sketchProfile.segments,
       ...(sketchProfile.constraints?.length ? { constraints: sketchProfile.constraints } : {}),
@@ -1102,7 +1108,7 @@ export async function exportLylProject(input: LylProjectExportInput) {
     // `hydrated` entries are already canonical and fingerprinted; only a state that
     // needed an ID repair has to be measured again.
     const idsWereRepaired = repaired.some((shape, index) => shape !== entry.shapes[index]);
-    return idsWereRepaired ? editorHistoryEntry(repaired, entry.selectedIds, normalizeNotes(entry.notes), entry.placementWorkplane) : entry;
+    return idsWereRepaired ? editorHistoryEntry(repaired, entry.selectedIds, normalizeNotes(entry.notes), entry.placementWorkplane, undefined, entry.variables) : entry;
   });
   const builder = new LylArchiveBuilder();
   const stateShapes = exportEntries.map((entry) => entry.shapes);
@@ -1138,6 +1144,7 @@ export async function exportLylProject(input: LylProjectExportInput) {
         reusedStates.set(stateId, cached);
       } else {
         const { result: state, used } = await builder.recording(() => serializeState(stateId as string, entry.shapes, builder, sourceAssetsByArchiveId, normalizeNotes(entry.notes)));
+        if(entry.variables?.length)state.variables=entry.variables;
         const json = JSON.stringify(state);
         serializedStateCache.set(entry, { stateId, sourceKey, json, used });
         freshStates.set(stateId, state);
@@ -1332,6 +1339,59 @@ function validateSketchProfile(value: unknown, label: string) {
     if (!pointIds.has(startId) || !pointIds.has(endId)) throw new Error(`${label} contains a segment with a missing point reference`);
     if (segment.construction !== undefined && typeof segment.construction !== "boolean") throw new Error(`${label}.segments[${index}].construction must be true or false`);
   });
+  if (profile.texts !== undefined) {
+    if (!Array.isArray(profile.texts) || profile.texts.length > 200) throw new Error(`${label}.texts must contain at most 200 texts`);
+    const textIds = new Set<string>(), ownedPoints = new Set<string>(), ownedSegments = new Set<string>();
+    for (const raw of profile.texts) {
+      const text = objectRecord(raw, `${label}.texts`);
+      const id = stringValue(text.id, `${label}.text.id`);
+      if (textIds.has(id)) throw new Error(`${label} contains duplicate text IDs`);
+      textIds.add(id);
+      if (typeof text.content !== "string" || text.content.length > 2000) throw new Error(`${label}.text.content is invalid`);
+      stringValue(text.font, `${label}.text.font`);
+      for (const key of ["size", "spacing", "letterWidth", "lineGap", "startOffset", "baselineOffset"]) finiteNumber(text[key], `${label}.text.${key}`);
+      if ((text.size as number) <= 0 || (text.size as number) > 500 || (text.letterWidth as number) < 25 || (text.letterWidth as number) > 400) throw new Error(`${label}.text size is out of range`);
+      if(text.raised!==undefined){
+        const raised=text.raised as Record<string,unknown>;
+        if(!raised||typeof raised!=="object")throw new Error(`${label}.text.raised is invalid`);
+        for(const key of ["backerThickness","letterHeight"]){finiteNumber(raised[key],`${label}.text.raised.${key}`);if((raised[key] as number)<.2||(raised[key] as number)>100)throw new Error(`${label}.text.raised.${key} is out of range`);}
+      }
+      if(text.connections!==undefined){
+        const connections=text.connections as Record<string,unknown>;
+        if(!connections||typeof connections!=="object"||!["join","rail","backer"].includes(connections.mode as string))throw new Error(`${label}.text.connections is invalid`);
+        for(const key of ["width","padding","railOffset"])finiteNumber(connections[key],`${label}.text.connections.${key}`);
+        if((connections.width as number)<.2||(connections.width as number)>20||(connections.padding as number)<.1||(connections.padding as number)>20||Math.abs(connections.railOffset as number)>100)throw new Error(`${label}.text.connections is out of range`);
+      }
+      if (text.bridges !== undefined) {
+        const bridges=text.bridges as Record<string,unknown>;
+        if(!bridges||typeof bridges!=="object")throw new Error(`${label}.text.bridges is invalid`);
+        finiteNumber(bridges.width,`${label}.text.bridges.width`);finiteNumber(bridges.count,`${label}.text.bridges.count`);
+        if((bridges.width as number)<.2||(bridges.width as number)>10||!Number.isInteger(bridges.count)||(bridges.count as number)<1||(bridges.count as number)>4)throw new Error(`${label}.text.bridges is out of range`);
+      }
+      if (text.pathPosition !== undefined) {
+        finiteNumber(text.pathPosition, `${label}.text.pathPosition`);
+        if ((text.pathPosition as number) < 0 || (text.pathPosition as number) > 100) throw new Error(`${label}.text.pathPosition is out of range`);
+      }
+      if (!["start", "center", "end"].includes(text.align as string)) throw new Error(`${label}.text alignment is invalid`);
+      if (!Array.isArray(text.matrix) || text.matrix.length !== 6) throw new Error(`${label}.text matrix is invalid`);
+      text.matrix.forEach((v, i) => finiteNumber(v, `${label}.text.matrix[${i}]`));
+      for (const key of ["kerning", "vertical", "reverse", "flip", "upright", "fit"]) if (typeof text[key] !== "boolean") throw new Error(`${label}.text.${key} must be boolean`);
+      for (const [key, ids, owned] of [["pointIds", pointIds, ownedPoints], ["segmentIds", segmentIds, ownedSegments]] as const) {
+        for (const ref of stringArray(text[key], `${label}.text.${key}`)) {
+          if (!ids.has(ref) || owned.has(ref)) throw new Error(`${label}.text has an invalid or shared geometry reference`);
+          owned.add(ref);
+        }
+      }
+      if (text.pathSegmentIds !== undefined) {
+        const refs = stringArray(text.pathSegmentIds, `${label}.text.pathSegmentIds`);
+        if (refs.some(ref => ownedSegments.has(ref))) throw new Error(`${label}.text cannot follow generated lettering`);
+      }
+    }
+    for (const raw of profile.texts) {
+      const text = raw as Record<string, unknown>;
+      if ((text.pathSegmentIds as string[] | undefined)?.some(id => ownedSegments.has(id))) throw new Error(`${label}.text cannot follow generated lettering`);
+    }
+  }
   if (profile.offsets !== undefined) {
     if (!Array.isArray(profile.offsets)) throw new Error(`${label}.offsets must be an array`);
     const offsetIds = new Set<string>();
@@ -1376,6 +1436,10 @@ function validateSketchProfile(value: unknown, label: string) {
       if (ruleIds.has(id)) throw new Error(`${label}.constraints contains duplicate ID '${id}'`);
       ruleIds.add(id);
       const kind = stringValue(rule.kind, `${ruleLabel}.kind`);
+      if(rule.dimensionBinding!==undefined){
+        validateVariableExpression(rule.dimensionBinding);
+        if(!withDimension.has(kind)&&kind!=="concentric")throw Error(`${ruleLabel} cannot have a dimension binding`);
+      }
       if (rule.relationshipId !== undefined) {
         stringValue(rule.relationshipId, `${ruleLabel}.relationshipId`);
         if (kind !== "symmetry" && kind !== "point-on-line") throw new Error(`${ruleLabel} has unsupported relationship metadata`);
@@ -1512,6 +1576,10 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
   }
   if (definition.importedMesh || definition.groupedShapes || definition.edgeTreatmentHistory || definition.cadBrep) {
     throw new Error(`${label} contains inline package-only geometry fields`);
+  }
+  if(definition.parameterBindings!==undefined){
+    const bindings=objectRecord(definition.parameterBindings,`${label}.parameterBindings`);
+    for(const [field,binding] of Object.entries(bindings)){if(!PARAMETER_FIELDS.includes(field as typeof PARAMETER_FIELDS[number]))throw Error("Unsupported parameter property");validateVariableExpression(binding);}
   }
   if (definition.formulas !== undefined) {
     // The calculations typed into number fields (#180): short texts by field id, nothing else.
@@ -2052,9 +2120,12 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
     }
     for (const key of ["loftBottomOutline", "loftTopOutline"] as const) {
       const value = definition[key];
-      if (value !== undefined && value !== "round" && value !== "rectangle" && value !== "polygon") {
-        throw new Error(`${label}.${key} must be round, rectangle or polygon`);
+      if (value !== undefined && value !== "round" && value !== "rectangle" && value !== "polygon" && value !== "svg") {
+        throw new Error(`${label}.${key} must be round, rectangle, polygon or svg`);
       }
+    }
+    for (const [outline, field] of [["loftBottomOutline","loftBottomSvg"],["loftTopOutline","loftTopSvg"]] as const) {
+      if ((definition[outline] === "svg" || definition[field] !== undefined) && !normalizeLoftSvgProfile(definition[field])) throw new Error(`${label}.${field} must contain a simple closed SVG outline of 3–512 points`);
     }
     // Sections between the ends (#1034): a list of plain sections; the geometry sorts and clamps them.
     if (definition.loftSections !== undefined) {
@@ -2063,7 +2134,8 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
         const at = `${label}.loftSections[${index}]`;
         if (!section || typeof section !== "object") throw new Error(`${at} must be an object`);
         const entry = section as Record<string, unknown>;
-        if (entry.outline !== "round" && entry.outline !== "rectangle" && entry.outline !== "polygon") throw new Error(`${at}.outline must be round, rectangle or polygon`);
+        if (entry.outline !== "round" && entry.outline !== "rectangle" && entry.outline !== "polygon" && entry.outline !== "svg") throw new Error(`${at}.outline must be round, rectangle, polygon or svg`);
+        if ((entry.outline === "svg" || entry.svg !== undefined) && !normalizeLoftSvgProfile(entry.svg)) throw new Error(`${at}.svg must contain a simple closed SVG outline`);
         for (const key of ["at", "width", "depth", "corner", "sides", "offsetX", "offsetZ"]) {
           if (entry[key] === undefined && key !== "at" && key !== "width" && key !== "depth") continue;
           const value = finiteNumber(entry[key], `${at}.${key}`);
@@ -2232,15 +2304,20 @@ async function validateDocumentAndAssets(raw: unknown, files: ArchiveFiles) {
   const activeObjectIds = new Set<string>();
   for (let stateIndex = 0; stateIndex < document.states.length; stateIndex += 1) {
     const state = document.states[stateIndex];
+    if(state.variables!==undefined)validateProjectVariables(state.variables);
     const stateId = stringValue(state?.id, `states[${stateIndex}].id`);
     if (stateById.has(stateId)) throw new Error(`Duplicate state ID '${stateId}'`);
     if (!Array.isArray(state.nodes) || state.nodes.length > LYL_LIMITS.objectsPerState) throw new Error(`State '${stateId}' has too many objects`);
+    const variableValues=resolveProjectVariables(state.variables??[]);
     const nodeById = new Map<string, LylShapeNodeV1>();
     state.nodes.forEach((node, nodeIndex) => {
       const nodeId = stringValue(node?.nodeId, `states[${stateIndex}].nodes[${nodeIndex}].nodeId`);
       if (nodeById.has(nodeId)) throw new Error(`State '${stateId}' contains duplicate node ID '${nodeId}'`);
       const definition = objectRecord(node.definition, `node '${nodeId}'.definition`);
       const objectId = validateShapeDefinition(definition, `node '${nodeId}'`);
+      if(definition.parameterBindings)for(const binding of Object.values(definition.parameterBindings as Record<string,unknown>)){validateVariableExpression(binding);evaluateVariableExpression(binding,variableValues);}
+      const sketch=definition.sketchProfile as SketchProfile|undefined;
+      for(const rule of sketch?.constraints??[])if(rule.dimensionBinding)evaluateVariableExpression(rule.dimensionBinding,variableValues);
       if (node.objectId !== objectId) throw new Error(`Node '${nodeId}' objectId does not match its shape definition`);
       if (node.importedMesh) {
         const source = node.importedMesh.sourceAssetId ? assetById.get(node.importedMesh.sourceAssetId) : undefined;
@@ -2537,6 +2614,7 @@ async function restoreV1(document: LylProjectDocumentV1, assetById: Map<string, 
     restoredNotes.get(entry.stateId) ?? [],
     entry.workplane,
     historyRecordedAt(entry.recordedAt),
+    document.states.find(state=>state.id===entry.stateId)?.variables??[],
   ));
   const shapes = restoredStates.get(document.sceneStateId) ?? [];
   const notes = restoredNotes.get(document.sceneStateId) ?? [];

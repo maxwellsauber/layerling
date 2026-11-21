@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampNudge, constrainToAxis, sketchSegmentDragPointIds, sketchSelectionMovePointIds } from "@/lib/sketchSelection";
+import { sketchRepeatedSegmentClick, sketchConnectedPathSelection, clampNudge, constrainToAxis, sketchSegmentDragPointIds, sketchSelectionMovePointIds } from "@/lib/sketchSelection";
 
 const profile = {
   segments: [
@@ -53,4 +53,35 @@ describe("clampNudge", () => {
     expect(clampNudge([{ x: 98, z: 0 }], 5, 0, 100, 100)).toEqual({ dx: 2, dz: 0 });
     expect(clampNudge([{ x: 0, z: -99 }, { x: 0, z: 40 }], 0, -5, 100, 100)).toEqual({ dx: 0, dz: -1 });
   });
+});
+
+describe("selecting a connected sketch path",()=>{
+ it("selects an open curve and moves every endpoint while leaving a separate line alone",()=>{
+  const p={segments:[...profile.segments,{id:"other",startId:"x",endId:"y"}]};
+  const selection=sketchConnectedPathSelection(p,"s2")!;
+  expect(selection.segmentIds).toEqual(["s1","s2","s3"]);
+  expect([...selection.pointIds].sort()).toEqual(["a","b","c","d"]);
+  expect([...sketchSegmentDragPointIds(p,selection,"s1")].sort()).toEqual(["a","b","c","d"]);
+ });
+ it("handles closed paths and disconnected selections safely",()=>{
+  const p={segments:[...profile.segments,{id:"close",startId:"d",endId:"a"}]};
+  expect(sketchConnectedPathSelection(p,"s1")!.segmentIds).toHaveLength(4);
+  expect(sketchConnectedPathSelection(p,"missing")).toBeNull();
+ });
+});
+
+describe("connected-path double clicks under SVG pointer capture",()=>{
+ const first={id:"s2",clientX:100,clientY:150,time:1000};
+ it("recognizes two releases on the same segment and selects the entire path",()=>{
+  expect(sketchRepeatedSegmentClick(first,{...first,time:1250,clientX:102})).toBe(true);
+  const selection=sketchConnectedPathSelection(profile,first.id)!;
+  expect(selection.segmentIds).toEqual(["s1","s2","s3"]);
+  expect([...sketchSegmentDragPointIds(profile,selection,"s2")].sort()).toEqual(["a","b","c","d"]);
+ });
+ it("rejects slow clicks, different segments, movement and the first click",()=>{
+  expect(sketchRepeatedSegmentClick(first,{...first,time:1600})).toBe(false);
+  expect(sketchRepeatedSegmentClick(first,{...first,time:1200,id:"s1"})).toBe(false);
+  expect(sketchRepeatedSegmentClick(first,{...first,time:1200,clientX:120})).toBe(false);
+  expect(sketchRepeatedSegmentClick(null,first)).toBe(false);
+ });
 });

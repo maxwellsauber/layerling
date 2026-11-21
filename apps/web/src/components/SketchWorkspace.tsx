@@ -1,4 +1,7 @@
 "use client";
+import {ProjectVariablesContext} from "@/components/workplane/ProjectVariablesContext";
+import {parseSketchDimension} from "@/lib/sketchVariableBindings";
+import { carrySketchTexts, regenerateSketchTexts, sketchTextBaseline, sketchTextPathAnchor } from "@/lib/sketchText";
 
 import { sketchOffsetForSelection, sketchOffsetSliderLimit } from "@/lib/sketchOffsetSelection";
 import { sketchOffsetSource } from "@/lib/sketchOffsets";
@@ -11,7 +14,7 @@ import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEn
 import { displayedHandle, handleAtOffset, handleOffset } from "@/lib/sketchBezierHandles";
 import { curveStretches } from "@/lib/sketchCurveThroughPoints";
 import { markEscapeHandled } from "@/lib/escapeHandled";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useContext, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { SnapGridControl } from "@/components/workplane/ShapeInspector";
 import { SnapGridPointerMenu } from "@/components/workplane/SnapGridMenu";
 import { SketchRevolvePreview } from "@/components/SketchRevolvePreview";
@@ -60,7 +63,7 @@ import { DEFAULT_SKETCH_STROKE, SKETCH_STROKE_ALIGNS, SKETCH_STROKE_CAPS, SKETCH
 import { selectWholeValue } from "@/lib/numberField";
 import { GuideHelpLink } from "@/components/GuideHelpLink";
 import { displayY, insideZ } from "@/lib/displayAxes";
-import { clampNudge, constrainToAxis, sketchSegmentDragPointIds, sketchSelectedPointIds, sketchSelectedSegmentIds, sketchSelectionMovePointIds, type SketchSelectableEntity, type SketchSelection } from "@/lib/sketchSelection";
+import { sketchRepeatedSegmentClick, type SketchSegmentClick, sketchConnectedPathSelection, clampNudge, constrainToAxis, sketchSegmentDragPointIds, sketchSelectedPointIds, sketchSelectedSegmentIds, sketchSelectionMovePointIds, type SketchSelectableEntity, type SketchSelection } from "@/lib/sketchSelection";
 import { closedPathAt, closedPathRegions, cubicPoint, curveControls, isInsideEdges, orderedPaths, pathEdges, type DisplayPath, type PlaneEdge } from "@/lib/sketchPaths";
 import { capturePointer } from "@/lib/pointerCapture";
 import { useMiddleClick } from "@/lib/middleClick";
@@ -94,6 +97,7 @@ type SketchWorkspaceProps = {
   onToggleReferenceEdges?: () => void;
   tool: SketchTool;
   activePointId: string | null;
+  textPathPicking?: boolean;
   selected: SketchSelection;
   measurement: SketchMeasurement;
   pendingMeasurementStart: SketchPoint | null;
@@ -128,9 +132,9 @@ type SketchWorkspaceProps = {
   onMovePoint: (id: string, point: { x: number; z: number }) => void;
   /** Basic persistent constraints. More complex tangent/arc rules need a general solver. */
   onCommitOffsetProfile?: (profile: SketchProfile) => boolean | undefined;
-  onAddConstraint?: (rule: SketchConstraintInput) => void;
+  onAddConstraint?: (rule: SketchConstraintInput) => boolean | void;
   onRemoveConstraint?: (id: string) => void;
-  onUpdateConstraint?: (id: string, value: number) => boolean | undefined;
+  onUpdateConstraint?: (id: string, value: number, binding?: import("@/lib/projectVariables").VariableExpression) => boolean | undefined;
   constraintFailure?: SketchConstraintFailure | null;
   onDismissConstraintFailure?: () => void;
   /** Locks the selected outline, or unlocks it when all of it is locked (#653). */
@@ -155,6 +159,7 @@ type SketchWorkspaceProps = {
   onStraightenSegment?: (id: string) => void;
   /** Makes a line a construction line (#229), or a normal line again. */
   onSetSegmentConstruction?: (id: string, construction: boolean) => void;
+  onSetSegmentsConstruction?: (ids: string[], construction: boolean) => void;
   onApplyFillet?: (ids: string[], radius: number) => void;
   onApplyChamfer?: (ids: string[], distance: number) => void;
   onClearMeasurement: () => void;
@@ -781,6 +786,7 @@ export function SketchWorkspace({
   tool,
   activePointId,
   selected,
+  textPathPicking,
   measurement,
   pendingMeasurementStart,
   initialSnap,
@@ -824,6 +830,7 @@ export function SketchWorkspace({
   onStraightenSegment,
   onStraightenSegments,
   onSetSegmentConstruction,
+  onSetSegmentsConstruction,
   onApplyFillet,
   onApplyChamfer,
   onClearMeasurement,
@@ -858,6 +865,7 @@ export function SketchWorkspace({
     onFold: () => setCameraBarCollapsed(true),
     keepOpen: () => cameraBarMove.dragging,
   });
+  const {variables}=useContext(ProjectVariablesContext);
   setLengthUnit(workspace);
   const unitLabel = lengthDisplayUnit(workspace).label;
   const [snap, setSnap] = useState<GridSize>(() => normalizeSnapGrid(initialSnap, DEFAULT_SNAP_GRID));
@@ -878,6 +886,7 @@ export function SketchWorkspace({
   const viewSlide = useSketchViewSlide(setView);
   // Where the last left press on the empty plate began a selection frame; any other press clears it, so only a
   // double click there centres the view, as in the 3D view.
+  const segmentClickRef = useRef<SketchSegmentClick | null>(null);
   const emptyPressRef = useRef<{ x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ x: number; z: number } | null>(null);
   // Where a shape dragged in from the Shapes menu would land on a snap point (#1236).
@@ -957,6 +966,7 @@ export function SketchWorkspace({
     segmentId: string;
     value: string;
     sketchPos: { x: number; z: number };
+    error?: string;
   } | null>(null);
   // The angle at the selected corner, while its value is typed: which line turns is shown and can be switched.
   const [editingAngle, setEditingAngle] = useState<{
@@ -1117,11 +1127,22 @@ export function SketchWorkspace({
   const draggedPointId = pointerAction?.kind === "move-point" ? pointerAction.pointId : null;
   const pointDragSnapProfile = useMemo(() => draggedPointId
     ? sketchDragSnapProfile(profile, new Set([draggedPointId])) : null, [profile, draggedPointId]);
+  const liveDisplayProfile = useMemo(() => {
+    if(solvedDisplayProfile===profile)return profile; // Committed profiles already contain generated lettering.
+    try { return regenerateSketchTexts(carrySketchTexts(solvedDisplayProfile, profile)); }
+    catch { return solvedDisplayProfile; }
+  }, [solvedDisplayProfile, profile]);
   const displayProfile = useMemo(() => {
-    const hidden = new Set(solvedDisplayProfile.offsets?.filter((feature) => feature.hidden).flatMap((feature) => feature.pointIds));
-    return hidden.size ? { ...solvedDisplayProfile, points: solvedDisplayProfile.points.filter((point) => !hidden.has(point.id)),
-      segments: solvedDisplayProfile.segments.filter((segment) => !hidden.has(segment.startId) && !hidden.has(segment.endId)) } : solvedDisplayProfile;
-  }, [solvedDisplayProfile]);
+    const hidden = new Set(liveDisplayProfile.offsets?.filter((feature) => feature.hidden).flatMap((feature) => feature.pointIds));
+    return hidden.size ? { ...liveDisplayProfile, points: liveDisplayProfile.points.filter((point) => !hidden.has(point.id)),
+      segments: liveDisplayProfile.segments.filter((segment) => !hidden.has(segment.startId) && !hidden.has(segment.endId)) } : liveDisplayProfile;
+  }, [liveDisplayProfile]);
+  const selectedPointSet = useMemo(()=>new Set(selected?.kind==="multiple"?selected.pointIds:selected?.kind==="point"?[selected.id]:[]),[selected]);
+  const selectedSegmentSet = useMemo(()=>new Set(selected?.kind==="multiple"?selected.segmentIds:selected?.kind==="segment"?[selected.id]:[]),[selected]);
+  const textPointSet = useMemo(()=>new Set(profile.texts?.flatMap(text=>text.pointIds)),[profile.texts]);
+  const selectedLiveText = useMemo(()=>selected?.kind==="multiple"?profile.texts?.find(text=>text.pointIds.some(id=>selectedPointSet.has(id))):undefined,[profile.texts,selected,selectedPointSet]);
+  const textBaseline = useMemo(()=>selectedLiveText?.pathSegmentIds?sketchTextBaseline(displayProfile,selectedLiveText.pathSegmentIds):null,[displayProfile,selectedLiveText]);
+  const textPathAnchor = useMemo(()=>selectedLiveText&&textBaseline?sketchTextPathAnchor(selectedLiveText,textBaseline.length,textBaseline.closed):0,[selectedLiveText,textBaseline]);
   const displayImages = useMemo(() => {
     const images = profile.images ?? [];
     if (pointerAction?.kind === "move-image") {
@@ -1349,9 +1370,13 @@ export function SketchWorkspace({
   const alreadyConcentric = circlePair && selectedConstraints.some((rule) =>
     rule.kind === "concentric" && circlePair.every((shape) =>
       rule.circles.some((ids) => ids.every((id) => shape.pointIds.includes(id)))));
+  const radialRule=selectedConstraints.find(rule=>rule.kind==='concentric');
+  const radialText=draftValue??radialRule?.dimensionBinding?.expression??(circlePair?formatDimension(Math.abs(circlePair[0].radius-circlePair[1].radius),workspace.accuracy):'');
+  const radialInput=parseSketchDimension(radialText,variables,parseLengthMm);
   const diameterRule = selectedConstraints.find((rule) => rule.kind === "circle-diameter");
   const diameter = diameterRule?.kind === "circle-diameter" ? diameterRule.value : circle ? circle.radius * 2 : undefined;
-  const requestedDiameter = draftValue === undefined ? diameter : parseLengthMm(draftValue);
+  const diameterInput=parseSketchDimension(draftValue??diameterRule?.dimensionBinding?.expression??(diameter===undefined?"":formatDimension(diameter,workspace.accuracy)),variables,parseLengthMm);
+  const requestedDiameter = diameterInput.value;
   const canSetDiameter = requestedDiameter !== undefined && Number.isFinite(requestedDiameter) && requestedDiameter > 0.001 && requestedDiameter <= 1e6;
   const centerRule: SketchConstraintInput | undefined = (() => {
     if (!circle || !outlineReference || !outlineSelection) return;
@@ -1419,7 +1444,8 @@ export function SketchWorkspace({
     }
   })();
   const gapText = gapDraft?.target === dimensionTarget ? gapDraft?.value : undefined;
-  const gapValue = gapRule && (gapText === undefined ? Math.abs(gapRule.value) : parseLengthMm(gapText));
+  const gapInput=parseSketchDimension(gapText??gapRule?.dimensionBinding?.expression??formatDimension(Math.abs(gapRule?.value??NaN),workspace.accuracy),variables,parseLengthMm);
+  const gapValue = gapRule && gapInput.value;
 
   const minimumGap = gapRule?.kind === "outline-line-distance" ? 0 : 0.001;
   const canSetGap = gapValue !== undefined && Number.isFinite(gapValue) && gapValue >= minimumGap && gapValue <= 1e6;
@@ -1431,11 +1457,13 @@ export function SketchWorkspace({
       { x: angleFirst.x - angleCorner.x, z: angleFirst.z - angleCorner.z },
       { x: angleSecond.x - angleCorner.x, z: angleSecond.z - angleCorner.z },
     )) * 180 / Math.PI : undefined;
-  const requestedAngle = draftValue === undefined ? angleDegrees : parseMeasurementInput(draftValue);
+  const angleRule=selectedConstraints.find(rule=>rule.kind==="angle");
+  const angleInput=parseSketchDimension(draftValue??angleRule?.dimensionBinding?.expression??String(angleDegrees??""),variables,parseMeasurementInput);
+  const requestedAngle = angleInput.value;
   const setFixedAngle = () => {
     if (!angleCorner || !angleFirst || !angleSecond || requestedAngle === undefined ||
       !Number.isFinite(requestedAngle) || requestedAngle <= 0 || requestedAngle >= 180) return;
-    onAddConstraint?.({ kind: "angle", a: angleCorner.id, b: angleFirst.id, c: angleCorner.id, d: angleSecond.id, value: requestedAngle });
+    onAddConstraint?.({ kind: "angle", a: angleCorner.id, b: angleFirst.id, c: angleCorner.id, d: angleSecond.id, value: requestedAngle, dimensionBinding:angleInput.binding });
     setDimensionDraft(null);
   };
   const lengthConstraint = selectedConstraints.find((rule) => rule.kind === "distance");
@@ -1443,11 +1471,12 @@ export function SketchWorkspace({
   const lengthEnd = selectedSegment && pointById.get(selectedSegment.endId);
   const currentLength = lengthConstraint?.kind === "distance" ? lengthConstraint.value
     : lengthStart && lengthEnd ? Math.hypot(lengthEnd.x - lengthStart.x, lengthEnd.z - lengthStart.z) : undefined;
-  const lengthValue = draftValue ?? (currentLength === undefined ? "" : formatDimension(currentLength, workspace.accuracy));
-  const requestedLength = draftValue === undefined ? currentLength : parseLengthMm(draftValue);
+  const lengthValue = draftValue ?? lengthConstraint?.dimensionBinding?.expression ?? (currentLength === undefined ? "" : formatDimension(currentLength, workspace.accuracy));
+  const lengthInput=parseSketchDimension(lengthValue,variables,parseLengthMm);
+  const requestedLength = lengthInput.value;
   const setLineLength = () => {
     if (!selectedSegment || requestedLength === undefined || !Number.isFinite(requestedLength) || requestedLength <= 0.001) return;
-    onAddConstraint?.({ kind: "distance", a: selectedSegment.startId, b: selectedSegment.endId, value: requestedLength });
+    onAddConstraint?.({ kind: "distance", a: selectedSegment.startId, b: selectedSegment.endId, value: requestedLength, dimensionBinding:lengthInput.binding });
     setDimensionDraft(null);
   };
   const addOffsetConstraint = (kind: "offset-x" | "offset-z", a: string, b: string) => {
@@ -1524,8 +1553,8 @@ export function SketchWorkspace({
     if (Math.abs(allowed.dx) < 1e-9 && Math.abs(allowed.dz) < 1e-9) return;
     onTransformPoints(translateSketchPoints(startPoints, allowed.dx, allowed.dz), t("sketch.shapeMoved"));
   };
-  const isPointSelected = (id: string) => selected?.kind === "point" ? selected.id === id : selected?.kind === "multiple" ? selected.pointIds.includes(id) : false;
-  const isSegmentSelected = (id: string) => selected?.kind === "segment" ? selected.id === id : selected?.kind === "multiple" ? selected.segmentIds.includes(id) : false;
+  const isPointSelected = (id: string) => selectedPointSet.has(id);
+  const isSegmentSelected = (id: string) => selectedSegmentSet.has(id);
   const [localCornerDialog, setLocalCornerDialog] = useState<"fillet" | "chamfer" | null>(null);
   const activeCornerDialog = propCornerDialog !== undefined ? propCornerDialog : localCornerDialog;
   const setCornerDialog = useCallback((dialog: "fillet" | "chamfer" | null) => {
@@ -1575,6 +1604,10 @@ export function SketchWorkspace({
   const selectedLines = sketchSelectedSegmentIds(selected)
     .map((id) => displayProfile.segments.find((segment) => segment.id === id))
     .filter((segment): segment is SketchSegment => Boolean(segment));
+  const generatedTextSegments = useMemo(()=>new Set(profile.texts?.flatMap(text=>text.segmentIds)),[profile.texts]);
+  const constructionLines = selectedLines.filter(segment=>!generatedTextSegments.has(segment.id));
+  const allConstruction = constructionLines.length>0&&constructionLines.every(segment=>segment.construction);
+  const mixedConstruction = constructionLines.some(segment=>segment.construction)&&!allConstruction;
   const canCurveLines = selectedLines.some((segment) => !isSegmentCurved(displayProfile, segment));
   const canStraightenLines = selectedLines.some((segment) => isSegmentCurved(displayProfile, segment) || (segment.kind ?? "line") !== "line");
   const manyCorners = selected?.kind === "multiple" && selectedCornerIds.some((id) => canApplySketchCornerTreatment(displayProfile, id));
@@ -1639,8 +1672,10 @@ export function SketchWorkspace({
   const dimensionEditDoneRef = useRef(false);
   const startDimensionEdit = useCallback((segmentId: string, value: string, sketchPos: { x: number; z: number }) => {
     dimensionEditDoneRef.current = false;
-    setEditingDimension({ segmentId, value, sketchPos });
-  }, []);
+    const segment=profile.segments.find(entry=>entry.id===segmentId);
+    const binding=segment&&profile.constraints?.find(rule=>rule.kind==='distance'&&sameSketchEndpoints(rule.a,rule.b,segment.startId,segment.endId))?.dimensionBinding;
+    setEditingDimension({ segmentId, value:binding?.expression??value, sketchPos });
+  }, [profile.segments,profile.constraints]);
 
   const cancelDimensionEdit = useCallback(() => {
     dimensionEditDoneRef.current = true;
@@ -1655,14 +1690,19 @@ export function SketchWorkspace({
    */
   const commitDimensionEdit = useCallback((symmetric = false) => {
     if (!editingDimension || dimensionEditDoneRef.current) return;
+    const parsed=parseSketchDimension(editingDimension.value,variables,parseLengthMm);
+    const length=parsed.value;
+    if(!Number.isFinite(length)||length<=0.001){
+      setEditingDimension({...editingDimension,error:parsed.error??t("sketchUi.couldNotApplyThisValueReviewTheHighlightedGeometry")});return;
+    }
     dimensionEditDoneRef.current = true;
-    const length = parseLengthMm(editingDimension.value);
     const segment = profile.segments.find((entry) => entry.id === editingDimension.segmentId);
     if (segment && Number.isFinite(length) && length > 0.001) {
       const fixedLength = profile.constraints?.find((rule) => rule.kind === "distance" &&
         sameSketchEndpoints(rule.a, rule.b, segment.startId, segment.endId));
-      if (fixedLength && onAddConstraint) {
-        onAddConstraint({ kind: "distance", a: fixedLength.a, b: fixedLength.b, value: length });
+      if ((fixedLength||parsed.binding) && onAddConstraint) {
+        const saved=onAddConstraint({ kind: "distance", a: fixedLength?.a??segment.startId, b: fixedLength?.b??segment.endId, value: length,dimensionBinding:parsed.binding });
+        if(saved===false){dimensionEditDoneRef.current=false;setEditingDimension({...editingDimension,error:t("sketchUi.couldNotApplyThisValueReviewTheHighlightedGeometry")});return;}
         setDimensionDraft(null);
         setEditingDimension(null);
         return;
@@ -1677,7 +1717,7 @@ export function SketchWorkspace({
       if (updatedPoints !== profile.points) onTransformPoints(updatedPoints, t("sketch.dimensionUpdated"));
     }
     setEditingDimension(null);
-  }, [editingDimension, profile.segments, profile.points, profile.constraints, selectedPoint, onTransformPoints, onAddConstraint]);
+  }, [editingDimension, profile.segments, profile.points, profile.constraints, selectedPoint, onTransformPoints, onAddConstraint, variables]);
 
   // A typed width or height stretches the selection along that axis only, from its left or top edge.
   const commitBoxSizeEdit = useCallback(() => {
@@ -2219,11 +2259,17 @@ export function SketchWorkspace({
     } else if (action.kind === "move-selection") {
       if (action.clickSegment && Math.hypot(event.clientX - action.clickSegment.clientX, event.clientY - action.clickSegment.clientY) < 4) {
         const owner = profile.offsets?.find(offset => offset.segmentIds.includes(action.clickSegment!.id));
+        const click = {...action.clickSegment,time:performance.now()};
+        const repeated = sketchRepeatedSegmentClick(segmentClickRef.current,click);
+        segmentClickRef.current = repeated ? null : click;
+        const path = repeated ? sketchConnectedPathSelection(profile,click.id) : null;
         if (owner) onSelectMany(owner.pointIds, owner.segmentIds, []);
+        else if(path){inspectOffsetShape(path.pointIds,path.segmentIds);onSelectMany(path.pointIds,path.segmentIds,[]);}
         else onSelectSegment(action.clickSegment.id);
         setPointerAction(null);
         return;
       }
+      segmentClickRef.current = null;
       // A click on a line, without dragging, only selects it.
       if (action.current.x === action.origin.x && action.current.z === action.origin.z) {
         setPointerAction(null);
@@ -2602,7 +2648,8 @@ export function SketchWorkspace({
     const preferred = outwardNormal(dimension.midpoint, dimension.tangent, closedEdges, profileCentroid, 2 * screenUnit);
     if (!preferred) return [];
     const curved = segment.kind !== "line" && Boolean(start.handleOut && end.handleIn);
-    const label = formatDimension(dimension.length, workspace.accuracy);
+    const bound=profile.constraints?.find(rule=>rule.kind==='distance'&&sameSketchEndpoints(rule.a,rule.b,segment.startId,segment.endId))?.dimensionBinding;
+    const label = bound?`ƒ ${bound.expression}`:formatDimension(dimension.length, workspace.accuracy);
     const pill = dimensionPillSize(label, screenUnit, 18);
     const anchor = curved ? dimension.midpoint : { x: (start.x + end.x) / 2, z: (start.z + end.z) / 2 };
     // Far enough out that the level pill clears the segment it measures.
@@ -3203,6 +3250,7 @@ export function SketchWorkspace({
                     onMirror({ segmentId: segment.id }, mirrorLinked);
                     closeMirror();
                   }
+                  else if (textPathPicking && event.button === 0) onSelectSegment(segment.id);
                   else if (tool === "erase") onDeleteSegment(segment.id);
                   else if (event.button === 0 && tool === "refine" && point) {
                     const start = pointById.get(segment.startId);
@@ -3608,8 +3656,23 @@ export function SketchWorkspace({
               </g>
             );
           })() : null}
+          {selectedLiveText && textBaseline ? (() => {
+            const length = textBaseline.length;
+            const start = textPathAnchor;
+            const offset = textBaseline.closed ? ((start % length) + length) % length : Math.max(0, Math.min(length, start));
+            const u = offset / length;
+            const p = textBaseline.curve.getPointAt(u), v = textBaseline.curve.getTangentAt(u).multiplyScalar(selectedLiveText.reverse ? -1 : 1);
+            const x = p.x - v.y * selectedLiveText.baselineOffset, z = p.y + v.x * selectedLiveText.baselineOffset;
+            const reach = 18 * screenUnit;
+            return <g pointerEvents="none" fill="none" stroke="#1688c9" strokeWidth={2 * screenUnit}>
+              {displayProfile.segments.filter(segment => selectedLiveText.pathSegmentIds?.includes(segment.id)).map(segment => <path key={segment.id} d={segmentData(segment, pointById)} />)}
+              <line x1={p.x} y1={p.y} x2={x} y2={z} strokeDasharray={`${4*screenUnit} ${3*screenUnit}`} />
+              <circle cx={x} cy={z} r={4*screenUnit} fill="#fff" />
+              <path d={`M ${x} ${z} L ${x+v.x*reach} ${z+v.y*reach} l ${(-v.x-v.y)*reach/3} ${(-v.y+v.x)*reach/3} M ${x+v.x*reach} ${z+v.y*reach} l ${(-v.x+v.y)*reach/3} ${(-v.y-v.x)*reach/3}`} />
+            </g>;
+          })() : null}
           <g className="sketch-points">
-            {displayProfile.points.map((point) => (
+            {displayProfile.points.filter(point => !textPointSet.has(point.id)).map((point) => (
               <circle
                 data-sketch-entity="point"
                 className={`${isPointSelected(point.id) ? "selected" : ""} ${activePointId === point.id ? "active" : ""} ${point.locked ? "locked" : ""}`}
@@ -3796,7 +3859,7 @@ export function SketchWorkspace({
             const lockedDiameter = constraints.find((rule) => rule.kind === "circle-diameter" &&
               rule.outline.every((id) => shape.pointIds.includes(id)));
             const label = lockedDiameter?.kind === "circle-diameter"
-              ? `Ø${formatDimension(lockedDiameter.value, workspace.accuracy)} mm` : null;
+              ? lockedDiameter.dimensionBinding ? `ƒ ${lockedDiameter.dimensionBinding.expression}` : `Ø${formatDimension(lockedDiameter.value, workspace.accuracy)} mm` : null;
             const concentric = constraints.find((rule) => rule.kind === "concentric" &&
               rule.circles.some((ids) => ids.every((id) => shape.pointIds.includes(id))));
             const width = label ? label.length * 7 + 22 : 0;
@@ -3822,9 +3885,10 @@ export function SketchWorkspace({
                 <path d="M -3 0 H 3 M 0 -3 V 3" stroke="white" strokeWidth={1.3} pointerEvents="none" />
                 {constraintAnnotationsVisible && concentric && (
                   <g transform={`translate(0 ${shape.radius / screenUnit + 13})`} {...badgeProps(concentric.id)}>
-                    <rect x={-12} y={-8} width={24} height={16} rx={4} />
-                    <circle r={5} fill="none" stroke="white" strokeWidth={1} />
-                    <circle r={2} fill="none" stroke="white" strokeWidth={1} />
+                    {concentric.dimensionBinding ? <>
+                      <rect x={-(concentric.dimensionBinding.expression.length*7+26)/2} y={-8} width={concentric.dimensionBinding.expression.length*7+26} height={16} rx={4}/>
+                      <text x={0} y={4}>ƒ {concentric.dimensionBinding.expression}</text>
+                    </> : <><rect x={-12} y={-8} width={24} height={16} rx={4} /><circle r={5} fill="none" stroke="white" strokeWidth={1} /><circle r={2} fill="none" stroke="white" strokeWidth={1} /></>}
                   </g>
                 )}
                 {constraintAnnotationsVisible && label && (
@@ -3863,7 +3927,7 @@ export function SketchWorkspace({
                     return [{ id: rule.id, label: `${rule.kind === "parallel" ? "∥" : rule.kind === "perpendicular" ? "⊥" : "="}${index + 1}` }];
                   }
                   if (matches && rule.kind === "distance") {
-                    return [{ id: rule.id, label: `${formatDimension(rule.value, workspace.accuracy)} mm`, fixedLength: true }];
+                    return [{ id: rule.id, label: rule.dimensionBinding ? `ƒ ${rule.dimensionBinding.expression}` : `${formatDimension(rule.value, workspace.accuracy)} mm`, fixedLength: true }];
                   }
                   if (!matches || (rule.kind !== "horizontal" && rule.kind !== "vertical")) return [];
                   return [{ id: rule.id, label: rule.kind === "horizontal" ? "H" : "V" }];
@@ -3883,6 +3947,7 @@ export function SketchWorkspace({
                   return (
                     <g key={`${segment.id}-${id}`} transform={`translate(${x} ${z}) scale(${screenUnit})`}
                       {...badgeProps(id)}>
+                      {fixedLength&&<title>{(()=>{const rule=constraints.find(rule=>rule.id===id);return rule&&"value" in rule?rule.value:undefined;})()} mm</title>}
                       <rect x={-halfWidth} y={-8} width={widths[index]} height={16} rx={4} />
                       {fixedLength && <LockKeyhole x={-halfWidth + 4} y={-6} size={12} color="white" aria-hidden="true" />}
                       <text x={fixedLength ? 7 : 0} y={4}>{label}</text>
@@ -3923,7 +3988,7 @@ export function SketchWorkspace({
                   if (!projection) return null;
                   from = { ...a, x: to.x - projection.distance * projection.nx, z: to.z - projection.distance * projection.nz };
                 }
-                const label = `${formatDimension(Math.abs(rule.value), workspace.accuracy)} mm`;
+                const label = rule.dimensionBinding ? `ƒ ${rule.dimensionBinding.expression}` : `${formatDimension(Math.abs(rule.value), workspace.accuracy)} mm`;
                 const width = label.length * 7 + 22;
                 const dx = to.x - from.x;
                 const dz = to.z - from.z;
@@ -3962,7 +4027,7 @@ export function SketchWorkspace({
                 const bisector = Math.atan2(ray.z, ray.x) + sketchRayAngle(ray, { x: second.x - corner.x, z: second.z - corner.z }) / 2;
                 const x = corner.x + Math.cos(bisector) * 38 * screenUnit;
                 const z = corner.z + Math.sin(bisector) * 38 * screenUnit;
-                const label = `${formatDimension(rule.value, workspace.accuracy)}°`;
+                const label = rule.dimensionBinding ? `ƒ ${rule.dimensionBinding.expression}` : `${formatDimension(rule.value, workspace.accuracy)}°`;
                 const width = label.length * 7 + 22;
                 return (
                   <g key={rule.id} transform={`translate(${x} ${z}) scale(${screenUnit})`} {...badgeProps(rule.id)}>
@@ -4189,7 +4254,10 @@ export function SketchWorkspace({
           const overlayPos = getOverlayPos(editingDimension.sketchPos);
           if (!overlayPos) return null;
           return (
+            <>
             <input
+              aria-label={t("sketchUi.lineLengthInMillimeters")}
+              aria-invalid={Boolean(editingDimension.error)}
               className="dimension-input sketch-dimension-input" autoComplete="off"
               style={{
                 "--overlay-x": `${overlayPos.x}px`,
@@ -4200,7 +4268,7 @@ export function SketchWorkspace({
               inputMode="decimal"
               onPointerDown={(event) => event.stopPropagation()}
               onFocus={(event) => event.currentTarget.select()}
-              onChange={(event) => setEditingDimension((prev) => prev ? { ...prev, value: event.target.value } : null)}
+              onChange={(event) => setEditingDimension((prev) => prev ? { ...prev, value: event.target.value,error:undefined } : null)}
               onBlur={() => commitDimensionEdit()}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -4213,6 +4281,8 @@ export function SketchWorkspace({
                 }
               }}
             />
+            {editingDimension.error&&<span role="alert" className="sketch-constraint-error" style={{position:'absolute',left:overlayPos.x,top:overlayPos.y+24,zIndex:30,background:'var(--panel)',padding:6}}>{editingDimension.error}</span>}
+            </>
           );
         })() : null}
       </section>
@@ -4312,7 +4382,7 @@ export function SketchWorkspace({
           )}
         </div>
       ) : null}
-      {(manyCorners || manyLines || canCurveThroughPoints || (selected?.kind === "multiple" && onMirror)) && tool === "select" && !mirrorOpen ? (
+      {!profile.texts?.some(text => selected?.kind === "multiple" && selected.pointIds.some(id => text.pointIds.includes(id))) && (manyCorners || manyLines || canCurveThroughPoints || (selected?.kind === "multiple" && onMirror)) && tool === "select" && !mirrorOpen ? (
         <div className="sketch-point-actions" aria-label={t("sketch.pointActions")}>
           {activeCornerDialog && manyCorners ? (
             cornerDialogContent
@@ -4351,6 +4421,15 @@ export function SketchWorkspace({
                   <button type="button" title={`${t("sketch.straightenLineHint")} (1)`} aria-keyshortcuts="1" disabled={!canStraightenLines} onClick={() => onStraightenSegments?.(selectedLines.map((segment) => segment.id))}><Minus /><span>{t("sketch.straightenLine")}</span></button>
                 </>
               ) : null}
+              {selected?.kind==="multiple"&&constructionLines.length>0&&onSetSegmentsConstruction ? (
+                <button type="button" disabled={selectionLocked} className={allConstruction?"active":""}
+                  aria-pressed={mixedConstruction?"mixed":allConstruction}
+                  aria-label={t(allConstruction?"sketch.makeSolidManyHint":"sketch.makeConstructionManyHint")}
+                  title={t(allConstruction?"sketch.makeSolidManyHint":"sketch.makeConstructionManyHint")}
+                  onClick={()=>onSetSegmentsConstruction(constructionLines.map(segment=>segment.id),!allConstruction)}>
+                  {allConstruction?<ToolbarConstructionLineIcon/>:<img aria-hidden="true" alt="" draggable={false} className="sketch-reference-icon" data-sketch-icon="line" src="/assets/editor/sketch-tool-line.png" style={{width:24,height:24}}/>}
+                </button>
+              ):null}
               {canCurveThroughPoints ? (
                 <>
                   {manyCorners || manyLines ? <span className="sketch-point-divider" /> : null}
@@ -4440,11 +4519,11 @@ export function SketchWorkspace({
               type="button"
               className={selectedSegment.construction ? "active" : ""}
               aria-pressed={Boolean(selectedSegment.construction)}
+              aria-label={t(selectedSegment.construction ? "sketch.makeSolidHint" : "sketch.makeConstructionHint")}
               title={t(selectedSegment.construction ? "sketch.makeSolidHint" : "sketch.makeConstructionHint")}
               onClick={() => onSetSegmentConstruction(selectedSegment.id, !selectedSegment.construction)}
             >
-              <ToolbarConstructionLineIcon />
-              <span>{t(selectedSegment.construction ? "sketch.makeSolid" : "sketch.makeConstruction")}</span>
+              {selectedSegment.construction?<ToolbarConstructionLineIcon/>:<img aria-hidden="true" alt="" draggable={false} className="sketch-reference-icon" data-sketch-icon="line" src="/assets/editor/sketch-tool-line.png" style={{width:24,height:24}}/>}
             </button>
           ) : null}
           {mirrorButton}
@@ -4497,17 +4576,18 @@ export function SketchWorkspace({
           {circlePair && (
             <form className="sketch-length-control" key={`${dimensionTarget}:${circlePair[0].radius}:${circlePair[1].radius}`} onSubmit={(event) => {
               event.preventDefault();
-              const input = event.currentTarget.elements.namedItem("radialGap") as HTMLInputElement;
-              const value = input.value.trim() ? Number(input.value.replace(",", ".")) : NaN;
+              const value=radialInput.value;
               if (!Number.isFinite(value) || value <= 0 || value > 1e6) return;
               const [inner, outer] = [...circlePair].sort((a, b) => a.radius - b.radius);
               onAddConstraint({ kind: "concentric", a: inner.pointIds[0], b: outer.pointIds[0],
-                circles: [inner.pointIds, outer.pointIds], radialGap: value });
+                circles: [inner.pointIds, outer.pointIds], radialGap: value,dimensionBinding:radialInput.binding });
+              setDimensionDraft(null);
             }}>
               <label>{t("sketchUi.radialGap")} <input name="radialGap" type="text" inputMode="decimal"
                 className="sketch-corner-input" aria-label={t("sketchUi.radialGapBetweenCirclesInMillimeters")}
-                defaultValue={formatDimension(Math.abs(circlePair[0].radius - circlePair[1].radius), workspace.accuracy)} />  {t("sketchUi.mm")}</label>
-              <button type="submit">{t("sketchUi.setGap")}</button>
+                value={radialText} onChange={event=>setDimensionDraft({target:dimensionTarget,value:event.target.value})} />  {t("sketchUi.mm")}</label>
+              <button type="submit" disabled={!Number.isFinite(radialInput.value)||radialInput.value<=0}>{t("sketchUi.setGap")}</button>
+              {draftValue!==undefined&&radialInput.error&&<span className="sketch-constraint-error" role="alert">{radialInput.error}</span>}
             </form>
           )}
           {circlePair && (
@@ -4522,13 +4602,13 @@ export function SketchWorkspace({
               event.preventDefault();
               if (!canSetDiameter) return;
               const [a, b] = outlineSelection.pointIds;
-              onAddConstraint({ kind: "circle-diameter", a, b, outline: outlineSelection.pointIds, value: requestedDiameter });
+              onAddConstraint({ kind: "circle-diameter", a, b, outline: outlineSelection.pointIds, value: requestedDiameter, dimensionBinding:diameterInput.binding });
               setDimensionDraft(null);
             }}>
               <label>
 
                 {t("split.connectorDiameter")} <input type="text" inputMode="decimal" className="sketch-corner-input"
-                  value={draftValue ?? formatDimension(diameter, workspace.accuracy)}
+                  value={draftValue ?? diameterRule?.dimensionBinding?.expression ?? formatDimension(diameter, workspace.accuracy)}
                   onFocus={(event) => event.currentTarget.select()}
                   onChange={(event) => setDimensionDraft({ target: dimensionTarget, value: event.target.value })}
                   aria-label={t("sketchUi.circleDiameterInMillimeters")} />  {t("sketchUi.mm")}
@@ -4559,12 +4639,12 @@ export function SketchWorkspace({
             <form className="sketch-length-control" onSubmit={(event) => {
               event.preventDefault();
               if (!canSetGap) return;
-              onAddConstraint({ ...gapRule, value: gapRule.value < 0 ? -gapValue : gapValue });
+              onAddConstraint({ ...gapRule, value: gapRule.value < 0 ? -gapValue : gapValue, dimensionBinding:gapInput.binding });
               setGapDraft(null);
             }}>
               <label>
                 {gapRule.kind === "outline-line-distance" ? t("prop.hingeClearance") : t("edge.distance")} <input type="text" inputMode="decimal" className="sketch-corner-input"
-                  value={gapText ?? formatDimension(Math.abs(gapRule.value), workspace.accuracy)}
+                  value={gapText ?? gapRule.dimensionBinding?.expression ?? formatDimension(Math.abs(gapRule.value), workspace.accuracy)}
                   onFocus={(event) => event.currentTarget.select()}
                   onChange={(event) => setGapDraft({ target: dimensionTarget, value: event.target.value })}
                   aria-label={t("sketchUi.distanceInMillimeters")} />  {t("sketchUi.mm")}
@@ -4580,7 +4660,7 @@ export function SketchWorkspace({
               <label>
 
                 {t("edge.angle")} <input type="text" inputMode="decimal" className="sketch-corner-input"
-                  value={draftValue ?? formatDimension(angleDegrees, workspace.accuracy)}
+                  value={draftValue ?? angleRule?.dimensionBinding?.expression ?? formatDimension(angleDegrees, workspace.accuracy)}
                   onFocus={(event) => event.currentTarget.select()}
                   onChange={(event) => setDimensionDraft({ target: dimensionTarget, value: event.target.value })}
                   aria-label={t("sketchUi.cornerAngleInDegrees")} />°
@@ -4606,6 +4686,7 @@ export function SketchWorkspace({
               </label>
               <button type="submit" title={t("sketchUi.setAndConstrainThisLineSLength")}
                 disabled={requestedLength === undefined || !Number.isFinite(requestedLength) || requestedLength <= 0.001}>{t("sketchUi.setLength")}</button>
+              {draftValue!==undefined&&lengthInput.error&&<span className="sketch-constraint-error" role="alert">{lengthInput.error}</span>}
             </form>
           ) : null}
           {constraintPairs ? (

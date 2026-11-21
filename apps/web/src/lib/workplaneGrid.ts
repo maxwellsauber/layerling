@@ -122,6 +122,14 @@ function baseWorkplaneGridPalette(theme: ResolvedAppTheme, configuredColor: stri
       border: { color: configuredColor, opacity: 0.9 },
     };
   }
+  if (palette === "time-machine") return {
+    minor: { color: "#248398", opacity: 0.3 }, major: { color: "#47b5ca", opacity: 0.52 },
+    axis: { color: "#9aeaff", opacity: 0.82 }, border: { color: "#47b5ca", opacity: 0.85 },
+  };
+  if(palette==='slime')return {
+    minor:{color:'#7351a3',opacity:.25},major:{color:'#59318b',opacity:.52},
+    axis:{color:'#54218d',opacity:.85},border:{color:'#54218d',opacity:1},
+  };
   if (theme === "dark" && palette === "graphite") {
     // Light grey lines on a neutral ground, no yellow cast.
     return {
@@ -155,6 +163,14 @@ export function workplaneThemePalette(
   configuredSurface: string = DEFAULT_WORKPLANE_SURFACE_COLOR,
   configuredMajorColor = "",
 ): WorkplaneThemePalette {
+  if (palette === "time-machine") return {
+    sceneBackground: "#080f1b", surface: { color: "#122337", opacity: 0.92 },
+    grid: workplaneGridPalette("dark", configuredGridColor, "time-machine", configuredMajorColor),
+  };
+  if(palette==='slime')return {
+    sceneBackground:'#ece3fa',surface:{color:'#faf5ff',opacity:.86},
+    grid:workplaneGridPalette('light',configuredGridColor,'slime',configuredMajorColor),
+  };
   // The background and the surface colour belong to the light theme; the dark
   // themes keep their own, so a light choice cannot spoil them.
   if (theme === "dark" && palette === "graphite") {
