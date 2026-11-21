@@ -225,6 +225,30 @@ describe("constraint inspector", () => {
     expect(groups[1].open).toBe(false);
   });
 
+  it("edits only the constraint name, keeping its type fixed", () => {
+    const onRenameConstraint = vi.fn();
+    render({onRenameConstraint});
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Rename Distance"]')!.click());
+    const input = container.querySelector<HTMLInputElement>('[aria-label="Constraint name"]')!;
+    expect(input.parentElement!.textContent).toContain(" - Distance");
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "  My Wall  ");
+      input.dispatchEvent(new Event("input", {bubbles: true}));
+    });
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true})));
+    expect(onRenameConstraint).toHaveBeenCalledExactlyOnceWith("dimension", "My Wall");
+    render({rule: {...rule, name: "My Wall"}, onRenameConstraint});
+    expect(container.textContent).toContain("My Wall - Distance");
+  });
+  it("cancels a constraint rename on Escape", () => {
+    const onRenameConstraint = vi.fn();
+    render({onRenameConstraint});
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Rename Distance"]')!.click());
+    act(() => container.querySelector<HTMLInputElement>('[aria-label="Constraint name"]')!
+      .dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true})));
+    expect(onRenameConstraint).not.toHaveBeenCalled();
+  });
+
   it("renames a shape inline and trims its name on Enter", () => {
     const onRenameShape = vi.fn();
     render({ onRenameShape });

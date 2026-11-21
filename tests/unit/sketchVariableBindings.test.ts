@@ -4,7 +4,7 @@ import {compileVariableDraft,variableReferences,resolveProjectVariables,rewriteP
 import {cloneSketchProfile} from '@/lib/sketchSmoothHandles';
 import type {SketchProfile,WorkplaneShape} from '@/types/layerling';
 const variables=compileVariableDraft([],[{id:'w',name:'wall',expression:'12',refs:{}}]);
-const profile:SketchProfile={points:[{id:'a',x:0,z:0},{id:'b',x:5,z:0}],segments:[{id:'s',startId:'a',endId:'b'}],constraints:[{id:'distance',kind:'distance',a:'a',b:'b',value:5,dimensionBinding:variableReferences('wall * 2',variables)}]};
+const profile:SketchProfile={points:[{id:'a',x:0,z:0},{id:'b',x:5,z:0}],segments:[{id:'s',startId:'a',endId:'b'}],constraints:[{id:'distance',name:'My Wall',kind:'distance',a:'a',b:'b',value:5,dimensionBinding:variableReferences('wall * 2',variables)}]};
 it('solves linked dimensions while preserving editable formula and source geometry',()=>{
  const result=resolveSketchVariableBindings(profile,resolveProjectVariables(variables));
  expect(Math.hypot(result.points[1].x-result.points[0].x,result.points[1].z-result.points[0].z)).toBeCloseTo(24);
@@ -37,6 +37,8 @@ it('preserves dimension references in exported projects and undo snapshots',asyn
  const restored=await importLylProject(bytes);
  expect(restored.shapes[0].sketchProfile?.constraints?.[0].dimensionBinding).toEqual(profile.constraints![0].dimensionBinding);
  expect(restored.history[0].variables).toEqual(variables);
+ expect(restored.shapes[0].sketchProfile?.constraints?.[0].name).toBe('My Wall');
+ expect(cloneSketchProfile(profile).constraints?.[0].name).toBe('My Wall');
 });
 it('accepts named toolbar dimensions, preserving literal units and reporting unknown names',async()=>{
  const {parseSketchDimension}=await import('@/lib/sketchVariableBindings');

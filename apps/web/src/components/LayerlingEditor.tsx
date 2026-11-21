@@ -1,4 +1,6 @@
 "use client";
+
+import { rebuildVariableSketchBody } from "@/lib/rebuildVariableSketchBody";
 import { resolveSketchVariableBindings } from "@/lib/sketchVariableBindings";
 import { ProjectVariablesPanel } from "@/components/workplane/ProjectVariablesPanel";
 import { ProjectVariablesContext } from "@/components/workplane/ProjectVariablesContext";
@@ -176,6 +178,7 @@ import { DEFAULT_OVERHANG_ANGLE, normalizeOverhangAngle } from "@/lib/overhang";
 import { bodyOverhang, overhangBodies, overhangFigures, overhangFiguresText, type OverhangFigures } from "@/lib/overhangFigures";
 import { sectionMeasurement, sectionPointToWorld, snapSectionPoint } from "@/lib/sectionMeasure";
 import { DEFAULT_INFILL_PERCENT, DEFAULT_WALLS, PRINT_MATERIAL_DENSITY, PRINT_MATERIALS, FILAMENT_DIAMETER_MM, normalizePrintMaterial, printEstimate, printEstimateWithInfill } from "@/lib/printEstimate";
+import { sketchMappedEdges } from "@/lib/sketchEdgeMapping";
 import { matchingEdgeIds } from "@/lib/edgeMatching";
 import { readEdgeModifierSettings, rememberEdgeModifierSetting, startingEdgeModifierAmount, type EdgeModifierSettings } from "@/lib/edgeModifierMemory";
 import { getEditorProfile, profileBooleanValue } from "@/lib/editorProfile";
@@ -6530,6 +6533,15 @@ export function LayerlingEditor({
     return commitSketchProfile(withSketchConstraint(sketchProfile, { ...rule, id }), t("status.sketchConstraintAdded"));
   }, [commitSketchProfile, sketchProfile]);
 
+  const renameSketchConstraint = useCallback((id: string, name: string) => {
+    const target = sketchProfile.constraints?.find((rule) => rule.id === id);
+    if (!target) return;
+    const constraints = sketchProfile.constraints!.map((rule) =>
+      rule.id === id || (target.relationshipId && rule.relationshipId === target.relationshipId)
+        ? {...rule, name: name.trim().slice(0, 120) || undefined} : rule);
+    commitSketchProfile({...sketchProfile, constraints}, t("status.sketchUpdated"));
+  }, [commitSketchProfile, sketchProfile]);
+
   const updateSketchConstraint = useCallback((id: string, value: number, binding?: VariableExpression) => {
     const constraints = (sketchProfile.constraints ?? []).map((rule) => {
       if (rule.id !== id) return rule;
@@ -7218,9 +7230,10 @@ export function LayerlingEditor({
       activeProfile=regenerateSketchTexts(resolveSketchVariableBindings(renamedProfile,values),startSketch);
       if(changesLockedOutline(startSketch,activeProfile))throw Error(t("status.sketchOutlineLocked"));
     }
-    const update=async(shape:WorkplaneShape):Promise<WorkplaneShape>=>{
+    const update=async(shape:WorkplaneShape, watched:WorkplaneShape = shape):Promise<WorkplaneShape>=>{
       if(shape.groupedShapes?.length){
-        const parts=restoreGroupedChildren(shape),updated=await Promise.all(parts.map(update));
+        const parts=restoreGroupedChildren(shape),updated:WorkplaneShape[]=[];
+        for (const part of parts) updated.push(await update(part, watched));
         if(updated.every((p,i)=>p===parts[i]))return shape;
         if(shape.locked||shape.shapeLocked)throw Error(t("variables.lockedGroup"));
         const rebuilt=await rebuildGroupFromParts(shape,updated);if(!rebuilt.group)throw Error(rebuilt.failure);return rebuilt.group;
@@ -7231,12 +7244,21 @@ export function LayerlingEditor({
         if(resolvedProfile!==shape.sketchProfile){
           const profile=regenerateSketchTexts(resolvedProfile,shape.sketchProfile);
           if(shape.locked||shape.shapeLocked)throw Error(t("variables.locked"));
-          const built=shape.sketchOperation==='revolve'
-            ?await shapeFromRevolvedSketchProfile(profile,shape.sketchRevolve??{},shape)
-            :shape.sketchOperation==='sweep'?await cadShapeFromSketchSweep(profile,shape)
-            :await cadShapeFromSketchProfile(profile,shape.height,shape);
-          if(!built)throw Error(t("variables.blocked"));
-          next=placeSketchShape(built,placementWorkplaneRef.current,shape);
+          next=await rebuildVariableSketchBody(shape,profile,async(source,updatedProfile)=>{
+            const built=source.sketchOperation==='revolve'
+              ?await shapeFromRevolvedSketchProfile(updatedProfile,source.sketchRevolve??{},source)
+              :source.sketchOperation==='sweep'?await cadShapeFromSketchSweep(updatedProfile,source)
+              :await cadShapeFromSketchProfile(updatedProfile,source.height,source);
+            if(!built)throw Error(t("variables.blocked"));
+            return placeSketchShape(built,placementWorkplaneRef.current,source);
+          },async(body,entry)=>{
+            const feature=entry.feature;
+            if(feature.kind==='shell'||feature.kind==='offset')return shellShape(body,feature.amount,feature.openings??'none',feature.shellEdges??'round',watched,
+              feature.kind==='offset'?{shrink:feature.offsetShrink??false,sideways:feature.offsetSideways}:undefined,
+              {stack:feature.shellStack,stackFoot:normalizeShellStackFoot(feature.shellStackFoot),grid:normalizeShellGrid(feature.shellGrid),dividers:normalizeShellDividers(feature.shellDividers),
+                shelf:feature.shellShelf?{width:feature.shellShelf,height:feature.shellShelfHeight??DEFAULT_SHELL_SHELF_HEIGHT}:undefined});
+            return relaidEdgeTreatment(body,entry);
+          });
         }
       }
       for(const [field,binding] of Object.entries(shape.parameterBindings??{})){
@@ -7249,7 +7271,9 @@ export function LayerlingEditor({
       for(const [field,binding] of Object.entries(shape.parameterBindings??{}))if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-evaluateVariableExpression(binding,values))>1e-6)throw Error(t("variables.conflict"));
       return next;
     };
-    const next=await Promise.all(renamed.shapes.map(update));
+    // CAD modifiers share one worker session; replay each body before preparing the next.
+    const next:WorkplaneShape[]=[];
+    for(const shape of renamed.shapes) next.push(await update(shape,startShapes.find(original=>original.id===shape.id)??shape));
     if(shapesRef.current!==startShapes||variablesRef.current!==startVariables||liveSketchSessionRef.current.active!==session.active||liveSketchSessionRef.current.id!==session.id||(startSketch&&sketchHistoryRef.current[sketchHistoryIndexRef.current]!==startSketch))throw Error(t("variables.stale"));
     const previous=variablesRef.current;
     const previousResizeApproval=approvedConstrainedResizeRef.current;
@@ -8698,8 +8722,10 @@ export function LayerlingEditor({
       await prepareCadModifierForMcp(entry.before, sharpAngle),
       await prepareCadModifierForMcp(shape, sharpAngle),
     ];
-    const edgeIds = matchingEdgeIds(old.edges, feature.edgeIds ?? [], fresh.edges,
-      fresh.edges.filter((edge) => selectableCadModifierEdge(edge, sharpAngle)).map((edge) => edge.id));
+    const candidates = fresh.edges.filter((edge) => selectableCadModifierEdge(edge, sharpAngle)).map((edge) => edge.id);
+    const mapped = sketchMappedEdges(old.edges, entry.before, shape);
+    const edgeIds = (mapped && matchingEdgeIds(mapped, feature.edgeIds ?? [], fresh.edges, candidates))
+      ?? matchingEdgeIds(old.edges, feature.edgeIds ?? [], fresh.edges, candidates);
     if (!edgeIds) throw new Error("The edges of the fillet were not found again on the rebuilt body");
     let laid: WorkplaneShape | null = null;
     await edgeTreatedShape(shape, {
@@ -20358,7 +20384,8 @@ export function LayerlingEditor({
     <ProjectVariablesContext.Provider value={{variables:projectVariables,bind:bindProjectParameter,open:()=>setVariablesOpen(true)}}>
     <div className={`layerling-editor ${historyViewState ? "history-view-active" : ""} ${focusMode.active ? "focus-mode" : ""}`}>
       <SecondaryToolbar
-        onProjectVariables={()=>setVariablesOpen(true)}
+        projectVariablesOpen={variablesOpen}
+        onProjectVariables={()=>setVariablesOpen(open=>!open)}
         toolbarMode={toolbarMode}
         projectName={projectName}
         onProjectNameChange={onProjectNameChange}
@@ -20747,6 +20774,7 @@ export function LayerlingEditor({
             onCommitOffsetProfile={(next) => commitSketchProfile(next, t("status.sketchUpdated"), undefined, true)}
             onAddConstraint={addSketchConstraint}
             onRemoveConstraint={removeSketchConstraint}
+            onRenameConstraint={renameSketchConstraint}
             onUpdateConstraint={updateSketchConstraint}
             constraintFailure={sketchConstraintFailure}
             onDismissConstraintFailure={() => setSketchConstraintFailure(null)}

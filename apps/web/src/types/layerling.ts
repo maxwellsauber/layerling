@@ -786,7 +786,7 @@ type SketchConstraintGeometry =
   | { kind: "horizontal" | "vertical" | "coincident"; a: string; b: string; frameX?: { x: number; z: number } }
   | { kind: "distance" | "offset-x" | "offset-z"; a: string; b: string; value: number; frameX?: { x: number; z: number } };
 export type SketchConstraintInput = SketchConstraintGeometry & { dimensionBinding?: VariableExpression };
-export type SketchConstraint = SketchConstraintInput & { id: string; relationshipId?: string; dimensionBinding?: VariableExpression };
+export type SketchConstraint = SketchConstraintInput & { id: string; name?: string; relationshipId?: string; dimensionBinding?: VariableExpression };
 
 /** A derived path. Positive distance is outward for loops and left of an open path. */
 export type SketchOffset = {

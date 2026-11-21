@@ -15,7 +15,7 @@ describe("constraint badge hit areas", () => {
           { id: "ab", startId: "a", endId: "b" }, { id: "bc", startId: "b", endId: "c" },
           { id: "cd", startId: "c", endId: "d" }, { id: "da", startId: "d", endId: "a" },
         ],
-        constraints: [{ id: "horizontal", kind: "horizontal", a: "a", b: "b" }],
+        constraints: [{ id: "horizontal", name: "My Wall", kind: "horizontal", a: "a", b: "b" }],
       },
       referenceShapes: [], tool: "select", activePointId: null,
       selected: { kind: "multiple", pointIds: ["a", "b", "c", "d"], segmentIds: ["ab", "bc", "cd", "da"] },
@@ -34,6 +34,7 @@ describe("constraint badge hit areas", () => {
     const badge = container.querySelector('[aria-label="Inspect Horizontal"]');
     expect(selection).not.toBeNull();
     expect(badge).not.toBeNull();
+    expect(badge!.textContent).toContain("My Wall");
     expect(selection!.compareDocumentPosition(badge!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(badge!.getAttribute("pointer-events")).toBe("all");
     expect(container.querySelector('[data-sketch-entity="selection-box"]')).not.toBeNull();

@@ -134,6 +134,7 @@ type SketchWorkspaceProps = {
   onCommitOffsetProfile?: (profile: SketchProfile) => boolean | undefined;
   onAddConstraint?: (rule: SketchConstraintInput) => boolean | void;
   onRemoveConstraint?: (id: string) => void;
+  onRenameConstraint?: (id: string, name: string) => void;
   onUpdateConstraint?: (id: string, value: number, binding?: import("@/lib/projectVariables").VariableExpression) => boolean | undefined;
   constraintFailure?: SketchConstraintFailure | null;
   onDismissConstraintFailure?: () => void;
@@ -813,6 +814,7 @@ export function SketchWorkspace({
   onAddConstraint,
   onCommitOffsetProfile,
   onRemoveConstraint,
+  onRenameConstraint,
   onUpdateConstraint,
   constraintFailure,
   onDismissConstraintFailure,
@@ -3859,7 +3861,7 @@ export function SketchWorkspace({
             const lockedDiameter = constraints.find((rule) => rule.kind === "circle-diameter" &&
               rule.outline.every((id) => shape.pointIds.includes(id)));
             const label = lockedDiameter?.kind === "circle-diameter"
-              ? lockedDiameter.dimensionBinding ? `ƒ ${lockedDiameter.dimensionBinding.expression}` : `Ø${formatDimension(lockedDiameter.value, workspace.accuracy)} mm` : null;
+              ? lockedDiameter.name ?? (lockedDiameter.dimensionBinding ? `ƒ ${lockedDiameter.dimensionBinding.expression}` : `Ø${formatDimension(lockedDiameter.value, workspace.accuracy)} mm`) : null;
             const concentric = constraints.find((rule) => rule.kind === "concentric" &&
               rule.circles.some((ids) => ids.every((id) => shape.pointIds.includes(id))));
             const width = label ? label.length * 7 + 22 : 0;
@@ -3885,9 +3887,9 @@ export function SketchWorkspace({
                 <path d="M -3 0 H 3 M 0 -3 V 3" stroke="white" strokeWidth={1.3} pointerEvents="none" />
                 {constraintAnnotationsVisible && concentric && (
                   <g transform={`translate(0 ${shape.radius / screenUnit + 13})`} {...badgeProps(concentric.id)}>
-                    {concentric.dimensionBinding ? <>
-                      <rect x={-(concentric.dimensionBinding.expression.length*7+26)/2} y={-8} width={concentric.dimensionBinding.expression.length*7+26} height={16} rx={4}/>
-                      <text x={0} y={4}>ƒ {concentric.dimensionBinding.expression}</text>
+                    {concentric.name || concentric.dimensionBinding ? <>
+                      <rect x={-((concentric.name || `ƒ ${concentric.dimensionBinding!.expression}`).length*7+26)/2} y={-8} width={(concentric.name || `ƒ ${concentric.dimensionBinding!.expression}`).length*7+26} height={16} rx={4}/>
+                      <text x={0} y={4}>{concentric.name || `ƒ ${concentric.dimensionBinding!.expression}`}</text>
                     </> : <><rect x={-12} y={-8} width={24} height={16} rx={4} /><circle r={5} fill="none" stroke="white" strokeWidth={1} /><circle r={2} fill="none" stroke="white" strokeWidth={1} /></>}
                   </g>
                 )}
@@ -3932,6 +3934,7 @@ export function SketchWorkspace({
                   if (!matches || (rule.kind !== "horizontal" && rule.kind !== "vertical")) return [];
                   return [{ id: rule.id, label: rule.kind === "horizontal" ? "H" : "V" }];
                 });
+                for (const marker of markers) { const name = constraints.find((rule) => rule.id === marker.id)?.name; if (name) marker.label = name; }
                 const widths = markers.map(({ label, fixedLength }) => fixedLength ? Math.max(52, label.length * 7 + 22) : label.length > 1 ? Math.max(28, label.length * 7 + 10) : 16);
                 // Space the badges along the edge using their width and height projected onto its direction.
                 const spans = widths.map((width) => (width * Math.abs(dx) + 16 * Math.abs(dz)) / length + 4);
@@ -3988,7 +3991,7 @@ export function SketchWorkspace({
                   if (!projection) return null;
                   from = { ...a, x: to.x - projection.distance * projection.nx, z: to.z - projection.distance * projection.nz };
                 }
-                const label = rule.dimensionBinding ? `ƒ ${rule.dimensionBinding.expression}` : `${formatDimension(Math.abs(rule.value), workspace.accuracy)} mm`;
+                const label = rule.name ?? (rule.dimensionBinding ? `ƒ ${rule.dimensionBinding.expression}` : `${formatDimension(Math.abs(rule.value), workspace.accuracy)} mm`);
                 const width = label.length * 7 + 22;
                 const dx = to.x - from.x;
                 const dz = to.z - from.z;
@@ -4027,7 +4030,7 @@ export function SketchWorkspace({
                 const bisector = Math.atan2(ray.z, ray.x) + sketchRayAngle(ray, { x: second.x - corner.x, z: second.z - corner.z }) / 2;
                 const x = corner.x + Math.cos(bisector) * 38 * screenUnit;
                 const z = corner.z + Math.sin(bisector) * 38 * screenUnit;
-                const label = rule.dimensionBinding ? `ƒ ${rule.dimensionBinding.expression}` : `${formatDimension(rule.value, workspace.accuracy)}°`;
+                const label = rule.name ?? (rule.dimensionBinding ? `ƒ ${rule.dimensionBinding.expression}` : `${formatDimension(rule.value, workspace.accuracy)}°`);
                 const width = label.length * 7 + 22;
                 return (
                   <g key={rule.id} transform={`translate(${x} ${z}) scale(${screenUnit})`} {...badgeProps(rule.id)}>
@@ -4731,6 +4734,7 @@ export function SketchWorkspace({
           rejectedConstraintId={inspectedIsSaved ? undefined : inspected.id}
           annotationsVisible={constraintAnnotationsVisible}
           onToggleAnnotations={() => setConstraintAnnotationsVisible((visible) => !visible)}
+          onRenameConstraint={inspectedIsSaved ? onRenameConstraint : undefined}
           onUpdate={inspectedIsSaved ? onUpdateConstraint : undefined} onDelete={onRemoveConstraint}
           onClose={() => setInspectedId(null)} onSelect={inspectConstraint}
           onSelectShape={(pointIds, segmentIds) => onSelectMany(pointIds, segmentIds, [])}

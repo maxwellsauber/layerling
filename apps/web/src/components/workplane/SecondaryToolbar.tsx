@@ -296,6 +296,7 @@ export function SecondaryToolbar({
   onStartSketch,
   onEditSketch,
   onProjectVariables,
+  projectVariablesOpen = false,
   onSketchTool,
   onSketchPrimitive,
   onSketchText,
@@ -491,6 +492,7 @@ export function SecondaryToolbar({
   onStartSketch: (operation: SketchOperation) => void;
   onEditSketch: () => void;
   onProjectVariables?: () => void;
+  projectVariablesOpen?: boolean;
   onSketchTool: (tool: SketchTool) => void;
   onSketchPrimitive: (primitive: SketchPrimitive) => void;
   onSketchText?: () => void;
@@ -1626,7 +1628,7 @@ export function SecondaryToolbar({
         )}
         {onProjectVariables&&<div className="toolbar-section compact" data-group="variables" style={{order:sectionOrder.visibility+0.5}}>
           <div className="toolbar-section-label">{t("variables.title")}</div>
-          <div className="toolbar-section-tools"><button type="button" className="tool-button" aria-label={t("variables.title")} title={t("variables.title")} onClick={onProjectVariables}><span className="project-variable-function" aria-hidden="true">ƒ</span></button></div>
+          <div className="toolbar-section-tools"><button type="button" className={`toolbar-icon ${projectVariablesOpen ? "active" : ""}`} aria-pressed={projectVariablesOpen} aria-label={t("variables.title")} title={t("variables.title")} onClick={onProjectVariables}><span className="project-variable-function" aria-hidden="true">ƒ</span></button></div>
         </div>}
         {ribbonGroupShown("combine", ribbonHidden, combineShown) ? (
         <div className="toolbar-section" data-group="combine" {...foldProps("combine", 6)} style={{ order: sectionOrder.combine }}>
@@ -1830,7 +1832,7 @@ export function SecondaryToolbar({
                 <div className="toolbar-spacer" />
                 {onProjectVariables&&<div className="toolbar-section compact" data-group="variables">
                   <div className="toolbar-section-label">{t("variables.title")}</div>
-                  <div className="toolbar-section-tools"><button type="button" className="tool-button" aria-label={t("variables.title")} title={t("variables.title")} onClick={onProjectVariables}><span className="project-variable-function" aria-hidden="true">ƒ</span></button></div>
+                  <div className="toolbar-section-tools"><button type="button" className={`toolbar-icon ${projectVariablesOpen ? "active" : ""}`} aria-pressed={projectVariablesOpen} aria-label={t("variables.title")} title={t("variables.title")} onClick={onProjectVariables}><span className="project-variable-function" aria-hidden="true">ƒ</span></button></div>
                 </div>}
                 <div className="toolbar-section sketch-finish-section" data-group="finish">
                   <div className="toolbar-section-label">{t("sketch.group.finish")}</div>

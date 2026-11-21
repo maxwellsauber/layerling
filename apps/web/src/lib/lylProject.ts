@@ -1436,6 +1436,7 @@ function validateSketchProfile(value: unknown, label: string) {
       if (ruleIds.has(id)) throw new Error(`${label}.constraints contains duplicate ID '${id}'`);
       ruleIds.add(id);
       const kind = stringValue(rule.kind, `${ruleLabel}.kind`);
+      if (rule.name !== undefined && (typeof rule.name !== "string" || rule.name.length > 120)) throw new Error(`${ruleLabel}.name must be text up to 120 characters`);
       if(rule.dimensionBinding!==undefined){
         validateVariableExpression(rule.dimensionBinding);
         if(!withDimension.has(kind)&&kind!=="concentric")throw Error(`${ruleLabel} cannot have a dimension binding`);

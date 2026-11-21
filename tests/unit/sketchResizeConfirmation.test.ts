@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { edgeTreatmentAppliedFrame } from "@/lib/edgeTreatmentHistory";
 import { constrainedSketchResizeIds, withoutResizedSketchConstraints } from "@/lib/sketchResizeConfirmation";
 import type { WorkplaneShape } from "@/types/layerling";
 const body = (id="sketch"): WorkplaneShape => ({id,name:"Sketch",kind:"mesh",width:20,depth:20,height:10,size:20,x:0,z:0,elevation:0,rotation:0,color:"#123456",locked:false,hidden:false,
@@ -13,6 +14,21 @@ describe("3D resize constraint confirmation",()=>{
     expect(constrainedSketchResizeIds([original],[original])).toEqual([]);
     const free={...original,sketchProfile:{...original.sketchProfile!,constraints:[]}};
     expect(constrainedSketchResizeIds([free],[{...free,width:30}])).toEqual([]);
+  });
+  it.each(["fillet", "chamfer", "shell"] as const)("allows a recorded %s without removing constraints, even when the bounds change", kind => {
+    const original=body();
+    const next={...original,width:19,depth:18,size:19};
+    const entry={id:"modifier",createdAt:1,before:original,feature:{kind,amount:1,edgeCount:3},appliedFrame:edgeTreatmentAppliedFrame(next)};
+    const treated={...next,edgeTreatments:[entry.feature],edgeTreatmentHistory:[entry]};
+    expect(constrainedSketchResizeIds([original],[treated])).toEqual([]);
+    expect(treated.sketchProfile?.constraints).toEqual(original.sketchProfile?.constraints);
+    expect(constrainedSketchResizeIds([treated],[{...treated,width:30}])).toEqual([original.id]);
+    expect(constrainedSketchResizeIds([original],[{...treated,width:30}])).toEqual([original.id]);
+  });
+  it("does not exempt a modifier whose source was resized first",()=>{
+    const original=body(),resized={...original,width:30};
+    const entry={id:"modifier",createdAt:1,before:resized,feature:{kind:"fillet" as const,amount:1,edgeCount:3},appliedFrame:edgeTreatmentAppliedFrame(resized)};
+    expect(constrainedSketchResizeIds([original],[{...resized,edgeTreatmentHistory:[entry]}])).toEqual([original.id]);
   });
   it("removes only the approved bodies' constraints and preserves geometry and the original history snapshot",()=>{
     const original=body(),other=body("other"),next={...original,width:30};

@@ -2,6 +2,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { JoinType, OcctKernel, type ShapeHandle } from "occt-wasm";
+import { rebuildVariableSketchBody } from "@/lib/rebuildVariableSketchBody";
+import { edgeTreatmentAppliedFrame } from "@/lib/edgeTreatmentHistory";
+import type { WorkplaneShape, SketchProfile, EdgeTreatmentHistoryEntry } from "@/types/layerling";
 import { shellSolid } from "@/lib/cadShell";
 import { exactSolidFromMesh } from "@/lib/cadMeshExact";
 
@@ -40,6 +43,33 @@ describe("hollowing a solid with the real OCCT kernel", () => {
     expect(bounds.ymax - bounds.ymin).toBeCloseTo(20, 4);
     expect(bounds.zmax - bounds.zmin).toBeCloseTo(30, 4);
   }
+
+  it("keeps a variable-driven sketch hollow when its outline changes", async () => {
+    const profile: SketchProfile = {points:[{id:"a",x:0,z:0},{id:"b",x:40,z:30}],segments:[]};
+    const base: WorkplaneShape = {id:"variable-tray",name:"Tray",kind:"mesh",x:0,z:0,width:40,depth:30,size:40,height:20,rotation:0,color:"#f00",sketchProfile:profile};
+    const entry: EdgeTreatmentHistoryEntry = {id:"hollow",createdAt:1,before:base,appliedFrame:edgeTreatmentAppliedFrame(base),feature:{kind:"shell",amount:2,openings:"top",edgeCount:0}};
+    const shape={...base,edgeTreatments:[entry.feature],edgeTreatmentHistory:[entry]};
+    for (const width of [60,30]) {
+      const changed={...profile,points:[profile.points[0],{...profile.points[1],x:width}]};
+      const handles=new Map<WorkplaneShape,ShapeHandle>();
+      const allocated:ShapeHandle[]=[];
+      try {
+        const result=await rebuildVariableSketchBody(shape,changed,async(source,p)=>{
+          const body={...source,width:p.points[1].x,sketchProfile:p};
+          const solid=yUp(kernel.makeBox(body.width,30,20));
+          handles.set(body,solid);allocated.push(solid);return body;
+        },async(body,saved)=>{
+          const solid=shellSolid(kernel,handles.get(body)!,saved.feature.amount,saved.feature.openings!);
+          const hollow={...body,edgeTreatments:[saved.feature]};
+          handles.set(hollow,solid);allocated.push(solid);return hollow;
+        });
+        const solid=handles.get(result)!;
+        expect(kernel.isValid(solid)).toBe(true);
+        expect(kernel.getVolume(solid)).toBeCloseTo(width*30*20-(width-4)*26*18,3);
+        expect(result.edgeTreatments![0].amount).toBe(2);
+      } finally { for (const solid of allocated) kernel.release(solid); }
+    }
+  });
 
   // Fratercula's 1 mm frame: a wall as thick as the part is tall. The height
   // only limits the wall where a floor or lid is left standing.

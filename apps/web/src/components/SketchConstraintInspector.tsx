@@ -20,7 +20,7 @@ const CONSTRAINT_PANEL: MovablePanelOptions = {
 import { sketchCircleGeometry, sketchOutlineSegments, sketchConstraintReferences, sketchConstraintRelationships, sketchConstraintGroups, sketchConstraintValueError } from "@/lib/sketchConstraints";
 import type { SketchConstraint, SketchProfile } from "@/types/layerling";
 
-export function SketchConstraintInspector({ rule: requestedRule, profile, onUpdate, onDelete, onClose, onSelect, onSelectShape, onRenameShape, rejectedConstraintId, annotationsVisible = true, onToggleAnnotations }: {
+export function SketchConstraintInspector({ rule: requestedRule, profile, onUpdate, onDelete, onClose, onSelect, onSelectShape, onRenameShape, onRenameConstraint, rejectedConstraintId, annotationsVisible = true, onToggleAnnotations }: {
   rule: SketchConstraint;
   profile: SketchProfile;
   onUpdate?: (id: string, value: number, binding?: VariableExpression) => boolean | undefined;
@@ -28,6 +28,7 @@ export function SketchConstraintInspector({ rule: requestedRule, profile, onUpda
   onClose: () => void;
   onSelect?: (id: string) => void;
   onSelectShape?: (pointIds: string[], segmentIds: string[]) => void;
+  onRenameConstraint?: (id: string, name: string) => void;
   onRenameShape?: (pointIds: string[], name: string) => void;
   rejectedConstraintId?: string;
   annotationsVisible?: boolean;
@@ -85,6 +86,12 @@ export function SketchConstraintInspector({ rule: requestedRule, profile, onUpda
     if (!editingShape) return;
     onRenameShape?.(editingShape.pointIds, editingShape.draft.trim());
     setEditingShape(null);
+  };
+  const [editingConstraint, setEditingConstraint] = useState<{id: string; draft: string} | null>(null);
+  const commitConstraintName = () => {
+    if (!editingConstraint) return;
+    onRenameConstraint?.(editingConstraint.id, editingConstraint.draft.trim());
+    setEditingConstraint(null);
   };
   const geometryId = useId();
   const movable = useMovablePanel<HTMLElement>("layerling.sketch.constraintInspectorPosition", CONSTRAINT_PANEL);
@@ -196,10 +203,11 @@ export function SketchConstraintInspector({ rule: requestedRule, profile, onUpda
             <li className={`outliner-item ${entry.id === rule.id ? "selected" : ""}`} key={entry.id}>
               <div className="sketch-constraint-list-row">
               <button className="outliner-row-main sketch-constraint-row" type="button"
+                style={editingConstraint?.id === entry.id ? {display: "none"} : undefined}
                 aria-pressed={entry.id === rule.id} onClick={() => onSelect?.(entry.id)}>
                 <ListTree size={16} aria-hidden="true" />
                 <span className="outliner-info outliner-label-group">
-                  <span className="outliner-shape-name">{sketchConstraintLabel(entry.kind)}</span>
+                  <span className="outliner-shape-name">{entry.name ? `${entry.name} - ` : ""}{sketchConstraintLabel(entry.kind)}</span>
                   <span className="outliner-shape-kind">
                     {"value" in entry ? `${entry.value} ${entry.kind === "angle" ? "°" : "mm"}`
                       : entry.kind === "concentric" && entry.radialGap !== undefined ? t("sketchUi.offsetMm", { value0: Math.abs(entry.radialGap) }) : members.length > 1
@@ -209,6 +217,20 @@ export function SketchConstraintInspector({ rule: requestedRule, profile, onUpda
                   </span>
                 </span>
               </button>
+              {onRenameConstraint && entry.id !== rejectedConstraintId && (editingConstraint?.id === entry.id ?
+                <span className="outliner-row-main">
+                  <input className="outliner-rename-input" style={{minWidth: 0, flex: 1}} autoFocus aria-label="Constraint name" maxLength={120} value={editingConstraint.draft}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => setEditingConstraint({id: entry.id, draft: event.target.value})}
+                    onBlur={commitConstraintName} onKeyDown={(event) => {
+                      event.stopPropagation();
+                      if (event.key === "Enter") { event.preventDefault(); commitConstraintName(); }
+                      if (event.key === "Escape") { event.preventDefault(); setEditingConstraint(null); }
+                    }} />
+                  <span style={{whiteSpace: "nowrap"}}> - {sketchConstraintLabel(entry.kind)}</span>
+                </span> :
+                <button className="outliner-inline-action" type="button" aria-label={`Rename ${entry.name || sketchConstraintLabel(entry.kind)}`}
+                  onClick={() => setEditingConstraint({id: entry.id, draft: entry.name || ""})}><Pencil size={13}/></button>)}
               <button className="inspector-header-icon danger" type="button" disabled={!onDelete || entry.id === rejectedConstraintId}
                 aria-label={t("sketchUi.deleteConstraint2", { value0: sketchConstraintLabel(entry.kind) })} title={t("sketchUi.deleteThisConstraint")}
                 onClick={() => deleteConstraint(entry.id)}>
