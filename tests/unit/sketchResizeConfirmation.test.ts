@@ -5,9 +5,25 @@ import type { WorkplaneShape } from "@/types/layerling";
 const body = (id="sketch"): WorkplaneShape => ({id,name:"Sketch",kind:"mesh",width:20,depth:20,height:10,size:20,x:0,z:0,elevation:0,rotation:0,color:"#123456",locked:false,hidden:false,
   sketchProfile:{points:[{id:"a",x:0,z:0},{id:"b",x:20,z:0}],segments:[{id:"ab",startId:"a",endId:"b"}],constraints:[{id:"length",kind:"distance",a:"a",b:"b",value:20}]}} as WorkplaneShape);
 describe("3D resize constraint confirmation",()=>{
-  it.each(["width","depth","height","size"] as const)("detects %s edits without mutating the current sketch",key=>{
+  it.each(["width","depth","size"] as const)("detects %s edits without mutating the current sketch",key=>{
     const original=body(),before=structuredClone(original),next={...original,[key]:30};
     expect(constrainedSketchResizeIds([original],[next])).toEqual([original.id]);expect(original).toEqual(before);
+  });
+  it("allows extrusion height changes while keeping every sketch constraint",()=>{
+    const original=body(),next={...original,height:30,elevation:5};
+    expect(constrainedSketchResizeIds([original],[next])).toEqual([]);
+    expect(next.sketchProfile).toBe(original.sketchProfile);
+    expect(constrainedSketchResizeIds([original],[{...next,width:25}])).toEqual([original.id]);
+  });
+  it.each(["revolve","sweep"] as const)("still protects the outline when resizing a %s body",sketchOperation=>{
+    const original={...body(),sketchOperation};
+    expect(constrainedSketchResizeIds([original],[{...original,height:30}])).toEqual([original.id]);
+  });
+  it("allows height on a flat hollowed extrusion, but protects a tilted baked sketch",()=>{
+    const original={...body(),sketchPose:{height:10,anchor:{x:10,z:0},transform:[1,0,0,0,0,1,0,0,0,0,1,0]}};
+    expect(constrainedSketchResizeIds([original],[{...original,height:30}])).toEqual([]);
+    const tilted={...original,sketchPose:{...original.sketchPose,transform:[1,0,0,0,0,0,-1,0,0,1,0,0]}};
+    expect(constrainedSketchResizeIds([tilted],[{...tilted,height:30}])).toEqual([original.id]);
   });
   it("does not warn for placement, rotation, unchanged size, or unconstrained bodies",()=>{
     const original=body();expect(constrainedSketchResizeIds([original],[{...original,x:30,rotation:45}])).toEqual([]);

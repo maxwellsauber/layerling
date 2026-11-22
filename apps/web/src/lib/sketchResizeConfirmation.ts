@@ -15,6 +15,18 @@ function recordedModifierPreservesSketch(original: WorkplaneShape, shape: Workpl
     (["width", "depth", "height"] as const).every((key) => Math.abs(added.appliedFrame![key] - shape[key]) < 1e-8);
 }
 
+/** Extrusion thickness is independent of the constrained 2D outline. */
+function onlyExtrusionHeightChanged(original: WorkplaneShape, shape: WorkplaneShape) {
+  if ((original.sketchOperation && original.sketchOperation !== "extrude") || original.sketchRevolve) return false;
+  if (JSON.stringify(original.sketchProfile) !== JSON.stringify(shape.sketchProfile)) return false;
+  if ((["width", "depth", "size"] as const).some(key => Math.abs((original[key] ?? 0) - (shape[key] ?? 0)) > 1e-8)) return false;
+  // A tilted sketch baked into a CAD body's world axes has part of its outline
+  // along world Y. Scaling that body's height would change the sketch too.
+  const pose = original.sketchPose?.transform;
+  if (pose && (Math.abs(pose[1]) > 1e-8 || Math.abs(pose[9]) > 1e-8)) return false;
+  return true;
+}
+
 /** Ordinary placement changes are safe; resizing a constrained sketch needs an explicit choice. */
 export function constrainedSketchResizeIds(before: readonly WorkplaneShape[], after: readonly WorkplaneShape[]) {
   const previous = new Map(before.map((shape) => [shape.id, shape]));
@@ -22,6 +34,7 @@ export function constrainedSketchResizeIds(before: readonly WorkplaneShape[], af
     const original = previous.get(shape.id);
     return original?.sketchProfile?.constraints?.length && shape.sketchProfile &&
       !recordedModifierPreservesSketch(original, shape) &&
+      !onlyExtrusionHeightChanged(original, shape) &&
       dimensions.some((key) => Math.abs((shape[key] ?? 0) - (original[key] ?? 0)) > 1e-8);
   }).map((shape) => shape.id);
 }

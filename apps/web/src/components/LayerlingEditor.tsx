@@ -7266,7 +7266,7 @@ export function LayerlingEditor({
         if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-value)<1e-7)continue;
         if(next.locked||next.shapeLocked)throw Error(t("variables.locked"));
         next=shapeWithInspectorPatch(next,projectParameterPatch(next,field,value,workspaceSettingsRef.current));
-        if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-value)>1e-6)throw Error(t("variables.resultRange"));
+        if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-value)>1e-6)throw Error(`${t("variables.resultRange")} ${displayShapeName(next)}: ${field} = ${value} (actual ${projectParameterValue(next,field,workspaceSettingsRef.current)}).`);
       }
       for(const [field,binding] of Object.entries(shape.parameterBindings??{}))if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-evaluateVariableExpression(binding,values))>1e-6)throw Error(t("variables.conflict"));
       return next;
@@ -7296,7 +7296,7 @@ export function LayerlingEditor({
     const binding=variableReferences(expression,variablesRef.current),value=evaluateVariableExpression(binding,resolveProjectVariables(variablesRef.current));
     const patch=projectParameterPatch(shape,field,value,workspaceSettingsRef.current);
     const next=shapeWithInspectorPatch(shape,{...patch,parameterBindings:{...shape.parameterBindings,[field]:binding}});
-    if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-value)>1e-6)throw Error(t("variables.resultRange"));
+    if(Math.abs(projectParameterValue(next,field,workspaceSettingsRef.current)-value)>1e-6)throw Error(`${t("variables.resultRange")} ${displayShapeName(next)}: ${field} = ${value} (actual ${projectParameterValue(next,field,workspaceSettingsRef.current)}).`);
     updateShape(id,{...patch,parameterBindings:next.parameterBindings});
   }
 
@@ -21873,7 +21873,7 @@ export function LayerlingEditor({
       <pre data-codex-summary hidden>
         {compactDebugState}
       </pre>
-    {variablesOpen?<ProjectVariablesPanel variables={projectVariables} shapes={shapes} onApply={applyVariableDraft} onClose={()=>setVariablesOpen(false)}/>:null}
+    {variablesOpen?<ProjectVariablesPanel projectId={projectId} variables={projectVariables} shapes={shapes} onApply={applyVariableDraft} onClose={()=>setVariablesOpen(false)}/>:null}
     </div>
     </ProjectVariablesContext.Provider>
   );

@@ -19,3 +19,16 @@
 /* This single-tool group makes its entire tile the button hit target. */
 .toolbar-section[data-group="variables"] > .toolbar-section-tools { padding:0;overflow:hidden; }
 .toolbar-section[data-group="variables"] .toolbar-icon { width:100%;height:100%;min-width:var(--toolbar-icon-size);border-radius:inherit; }
+
+.design-variants { padding:12px;border-bottom:1px solid var(--border,#ede6da); }
+.design-variant-heading { display:flex;align-items:center;justify-content:space-between;gap:8px; }
+.design-variant-heading strong { font-size:13px; }
+.design-variant-heading small { font-size:11px;opacity:.75; }
+.design-variant-actions { display:flex;align-items:center;gap:6px;margin-top:8px;min-width:0; }
+.design-variant-actions select,.design-variant-actions input { min-width:0;flex:1;width:100%;font:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--border,#d7c9b8);border-radius:8px;background:var(--panel,#fff);color:inherit; }
+.design-variant-icon { display:grid;place-items:center;flex:0 0 28px;width:28px;height:30px;padding:0;background:transparent;color:inherit;border:0;border-radius:6px;cursor:pointer; }
+.design-variant-button { display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:0;min-height:32px;padding:7px 9px;border:1px solid var(--border,#d7c9b8);border-radius:8px;background:var(--panel,#fff);color:inherit;font:inherit;font-size:12px;font-weight:600;line-height:1.2;white-space:nowrap;cursor:pointer; }
+.design-variant-button.primary { background:var(--primary,#7630bb);border-color:var(--primary,#7630bb);color:white; }
+.design-variant-button:hover:not(:disabled),.design-variant-icon:hover:not(:disabled) { filter:brightness(.94); }
+.design-variants button:disabled { opacity:.4;cursor:default; }
+.design-variants button:focus-visible { outline:2px solid var(--primary,#7630bb);outline-offset:2px; }

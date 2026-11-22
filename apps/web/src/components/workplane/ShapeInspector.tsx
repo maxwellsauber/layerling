@@ -9507,4 +9507,12 @@ export function projectParameterPatch(shape:WorkplaneShape,field:string,value:nu
  property.onChange(value);if(!patch)throw Error(t("variables.cannotUpdate"));return patch;
 }
 
-export function projectParameterValue(shape:WorkplaneShape,field:string,workspace:WorkplaneWorkspaceSettings){return field==="positionX"?shape.x-plateOffsetOfShape(workspace,shape):field==="positionY"?displayY(shape.z):field==="positionZ"?(shape.elevation??0)+undersideOffset(shape):parameterValue(shape,field);}
+export function projectParameterValue(shape:WorkplaneShape,field:string,workspace:WorkplaneWorkspaceSettings){
+ if(field==="positionX")return shape.x-plateOffsetOfShape(workspace,shape);
+ if(field==="positionY")return displayY(shape.z);
+ if(field==="positionZ")return (shape.elevation??0)+undersideOffset(shape);
+ // Read the same measure the property adapter writes: taper uses the overall
+ // footprint, and right-angle rotations can exchange the displayed axes.
+ const property=getShapeProperties(shape,()=>undefined,workspace).find(p=>p.id===field);
+ return property&&typeof property.value==="number"?property.value:parameterValue(shape,field);
+}

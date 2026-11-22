@@ -1,4 +1,5 @@
 "use client";
+import {DesignVariants} from "./DesignVariants";
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {ChevronDown,ChevronUp,Pencil,Plus,Trash2,X} from 'lucide-react';
 import {parameterUsage,resolveProjectVariables,compileVariableDraft,type ProjectVariable} from '@/lib/projectVariables';
@@ -6,7 +7,7 @@ import {useMovablePanel} from '@/lib/useMovablePanel';
 import type {WorkplaneShape} from '@/types/layerling';
 import {createLocalId} from '@/lib/localIds';
 import {t} from '@/lib/i18n';
-export function ProjectVariablesPanel({variables,shapes,onApply,onClose}:{variables:ProjectVariable[];shapes:WorkplaneShape[];onApply:(draft:ProjectVariable[])=>void|Promise<void>;onClose:()=>void}){
+export function ProjectVariablesPanel({variables,shapes,onApply,onClose,projectId}:{projectId?:string|null;variables:ProjectVariable[];shapes:WorkplaneShape[];onApply:(draft:ProjectVariable[])=>void|Promise<void>;onClose:()=>void}){
  const [draft,setDraft]=useState(variables),[error,setError]=useState(''),[busy,setBusy]=useState(false),[collapsed,setCollapsed]=useState(false);
  const [editing,setEditing]=useState<{id:string;field:'name'|'expression'}|null>(null);
  const inputRef=useRef<HTMLInputElement>(null),cancelled=useRef(false),pending=useRef(false);
@@ -27,10 +28,10 @@ export function ProjectVariablesPanel({variables,shapes,onApply,onClose}:{variab
  useEffect(()=>{inputRef.current?.focus();inputRef.current?.select();},[editing]);
  let values=new Map<string,number>();try{values=resolveProjectVariables(compileVariableDraft(variables,draft));}catch{/* Show validation errors on commit, without interrupting typing. */}
  const save=async(next:ProjectVariable[],closeEditor=true)=>{
-  if(pending.current)return;
+  if(pending.current)return false;
   pending.current=true;setBusy(true);setError('');
-  try{await onApply(next);if(closeEditor)setEditing(null);}
-  catch(e){setError(e instanceof Error?e.message:String(e));}
+  try{await onApply(next);if(closeEditor)setEditing(null);return true;}
+  catch(e){setDraft(variables);setEditing(null);setError(e instanceof Error?e.message:String(e));return false;}
   finally{pending.current=false;setBusy(false);}
  };
  const start=(id:string,field:'name'|'expression')=>{if(busy)return;cancelled.current=false;setError('');setEditing({id,field});};
@@ -49,7 +50,11 @@ export function ProjectVariablesPanel({variables,shapes,onApply,onClose}:{variab
    </div>
    <div className="outliner-header-actions"><button className="outliner-close-button" type="button" onClick={onClose} aria-label={t('variables.close')}><X size={16}/></button></div>
   </header>
-  {!collapsed&&<><ul className="outliner-list project-variables-list">
+  {!collapsed&&<>{projectId&&<DesignVariants projectId={projectId} variables={variables} disabled={busy||Boolean(editing)} onApply={async next=>{
+    if(pending.current)return;
+    pending.current=true;setBusy(true);setError('');
+    try{await onApply(next);setDraft(next);}finally{pending.current=false;setBusy(false);}
+  }}/>}<ul className="outliner-list project-variables-list">
    {draft.map(v=>{const used=parameterUsage(variables,shapes,v.id);return <li className="project-variable-row" key={v.id}>
     <span className="project-variable-function" aria-hidden="true">ƒ</span>
     <div className="outliner-info">{editor(v,'name')}<div className="project-variable-expression">{editor(v,'expression')}</div></div>
@@ -60,7 +65,7 @@ export function ProjectVariablesPanel({variables,shapes,onApply,onClose}:{variab
    </li>;})}
   </ul>
   {error?<p className="sketch-constraint-error project-variable-error" role="alert">{error}</p>:null}
-  <footer><button type="button" className="outliner-action-btn project-variable-add" disabled={busy} onClick={async()=>{let n=1;while(draft.some(v=>v.name===`dimension${n}`))n++;const id=createLocalId('variable');await save([...draft,{id,name:`dimension${n}`,expression:'100',refs:{}}]);if(!pending.current)start(id,'name');}}><Plus size={16}/>{t('variables.add')}</button></footer>
+  <footer><button type="button" className="outliner-action-btn project-variable-add" disabled={busy} onClick={async()=>{let n=1;while(draft.some(v=>v.name===`dimension${n}`))n++;const id=createLocalId('variable');const saved=await save([...draft,{id,name:`dimension${n}`,expression:'100',refs:{}}]);if(saved)start(id,'name');}}><Plus size={16}/>{t('variables.add')}</button></footer>
   </>}
  </aside>;
 }
