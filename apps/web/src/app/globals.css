@@ -2400,6 +2400,20 @@ html[data-theme="dark"] .announcement-body li::marker {
   transform: translateX(2.5%);
 }
 
+/* A folder whose name starts with an emoji shows that emoji in place of the
+   folder icon (#1932), sized by the card like the icon. */
+.server-folder-preview.folder-emoji-preview {
+  display: grid;
+  place-items: center;
+  container-type: inline-size;
+}
+
+.folder-emoji {
+  font-size: 34cqw;
+  line-height: 1;
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+}
+
 /* The way back is a folder card, but a quieter one: dashed like the others,
    without the nudge the closed folder needs, and its title is two dots. */
 .store-parent-card .server-folder-preview svg {
@@ -2978,6 +2992,14 @@ html[data-theme="dark"] .announcement-body li::marker {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 1px 2px rgba(72, 53, 32, 0.06);
 }
 
+/* A menu that hangs from the toolbar - a folded group's tools, the visibility menu, the Shapes panel - lies over the
+   status message beside the view cube (#1849): the message (z-index 50) covered the menu just opened, and the pointer
+   on the message keeps it there. The menus' own z-index counts inside the toolbar only, so the toolbar itself rises
+   above the message while one of them is open. The pinned Shapes panel is no menu and stays where it is. */
+.secondary-toolbar:has(.toolbar-section[data-collapsed][data-open], .visibility-dropdown, .shape-menu-dropdown:not(.shape-menu-under-inspector)) {
+  z-index: 51;
+}
+
 .edge-modifier-panel {
   position: fixed;
   top: calc(var(--editor-toolbar-height) + 14px);
@@ -3218,6 +3240,24 @@ html[data-theme="dark"] .edge-modifier-quick-actions button.active {
   opacity: 0.8;
 }
 
+/* The top layer's colour: the label and a swatch on one line. */
+.hole-pattern-layer-color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hole-pattern-layer-color input[type="color"] {
+  width: 44px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
 /* Scale by percent: the model railway gauges, four to a row. */
 .model-scale-presets {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3287,6 +3327,13 @@ html[data-theme="dark"] .model-scale-result {
   margin-top: 8px;
 }
 
+/* A hint below another hint, a checkbox or the Fill gaps button keeps a little room instead of tucking under it. */
+.paint-panel .cylinder-wrap-hint + .cylinder-wrap-hint,
+.paint-panel .edge-modifier-field + .cylinder-wrap-hint,
+.paint-panel .paint-gaps > .paint-gaps-button + .cylinder-wrap-hint {
+  margin-top: 6px;
+}
+
 /* The shape a lasso of the paint tool is drawing, over the view. */
 .paint-lasso-overlay {
   position: absolute;
@@ -3303,6 +3350,43 @@ html[data-theme="dark"] .model-scale-result {
   stroke: #d3710c;
   stroke-width: 2;
   stroke-linejoin: round;
+}
+
+/* A brush line being drawn: in the paint's colour, as wide as it paints, until it is laid on the body. */
+.paint-brush-overlay line,
+.paint-brush-overlay circle {
+  stroke: currentColor;
+  fill: currentColor;
+  stroke-linecap: round;
+  opacity: 0.75;
+}
+
+/* The magnetic lasso: the line laid along the edges, the way on to the pointer, and the clicks (the first one larger, to close on). */
+.paint-magnet-overlay polyline {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.paint-magnet-overlay polyline.laid {
+  stroke: #d3710c;
+}
+
+.paint-magnet-overlay polyline.ahead {
+  stroke: #d3710c;
+  stroke-dasharray: 5 4;
+  opacity: 0.8;
+}
+
+.paint-magnet-overlay circle {
+  fill: #ffffff;
+  stroke: #d3710c;
+  stroke-width: 2;
+}
+
+.paint-magnet-overlay circle.first {
+  fill: #fff1e0;
 }
 
 .shell-opening-options button.active {
@@ -3529,6 +3613,22 @@ html[data-theme="dark"] .shell-openings-summary {
   width: 100%;
   margin-top: 5px;
   padding: 0 7px;
+}
+
+/* The magnet pocket's typed measures (and the thread insert's own size): boxes like the selects beside them. */
+.magnet-pocket-panel .edge-modifier-field input[type="text"] {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 31px;
+  margin-top: 5px;
+  padding: 0 7px;
+  color: #533d26;
+  font: inherit;
+  font-weight: 600;
+  background: white;
+  border: 1px solid #c4ad96;
+  border-radius: 6px;
 }
 
 .edge-modifier-check {
@@ -4382,6 +4482,10 @@ html[data-theme="dark"] .toolbar-title-help .action-icon-button.active svg path 
   display: flex;
   min-width: 88px;
   height: var(--editor-toolbar-tools-height);
+  /* A group is never narrower than its tools. Where the bar does not wrap (wider than 1737 px, e.g. in focus mode) the
+     browser squeezed Visibility, Combine or Edges & walls below their buttons, Visibility's first button spilled over
+     Shapes, and the folding measured the squeezed widths, so it saw no need to fold (Stefan, 21.11.2026). */
+  flex-shrink: 0;
   flex-direction: column;
   justify-content: flex-start;
   border-right: 0;
@@ -6194,6 +6298,46 @@ html[data-simple-mode="on"]:not([data-toolbar-size], [data-simple-mode-enlarge="
 html[data-theme="dark"] .import-option.import-width-option input {
   border-color: #5a4a36;
   background: #2a241c;
+}
+
+/* The drawing's title block (forum, Lofo): number, revision and who drew it, under the 2D file format. */
+.export-drawing-info {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.export-drawing-info label {
+  display: contents;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.export-drawing-info input {
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #d8c4a5;
+  border-radius: 6px;
+  background: #fffaf1;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+html[data-theme="dark"] .export-drawing-info input {
+  border-color: #5a4a36;
+  background: #2a241c;
+}
+
+.export-drawing-info-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  opacity: 0.8;
 }
 
 html[data-theme="dark"] .import-option {
@@ -10389,6 +10533,377 @@ html[data-theme="dark"] .rotation-angle-badge {
   cursor: default;
 }
 
+/* Hollow, dividers and finger scoops: the grips on the body in the view (ShellWallsOverlay). Only grips and buttons take the pointer. */
+.shell-walls-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.shell-walls-overlay .shell-walls-overlay-line {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.shell-walls-overlay .shell-walls-overlay-line.picked {
+  stroke: #ffb347;
+  stroke-width: 3;
+}
+
+.shell-walls-overlay-grip,
+.shell-walls-overlay-remove,
+.shell-walls-overlay-split button {
+  pointer-events: auto;
+  touch-action: none;
+  padding: 0;
+  border: 2px solid #e07b00;
+  background: #ffffff;
+  color: #6d4b28;
+  box-shadow: 0 1px 4px rgba(40, 25, 10, 0.35);
+}
+
+.shell-walls-overlay-grip {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  cursor: move;
+}
+
+.shell-walls-overlay-grip.move {
+  background: #ffd591;
+}
+
+.shell-walls-overlay-grip.move.picked,
+.shell-walls-overlay-grip:hover,
+.shell-walls-overlay-grip:focus-visible {
+  background: #e07b00;
+  outline: none;
+}
+
+.shell-walls-overlay-grip.end {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  cursor: grab;
+}
+
+.shell-walls-overlay-remove {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-color: #c0392b;
+  border-radius: 50%;
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.shell-walls-overlay-remove:hover,
+.shell-walls-overlay-remove:focus-visible {
+  color: #ffffff;
+  background: #c0392b;
+  outline: none;
+}
+
+.shell-walls-overlay-compartment {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  transform: translate(-50%, -50%);
+}
+
+.shell-walls-overlay-size {
+  padding: 1px 6px;
+  color: #3d2c1b;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(40, 25, 10, 0.3);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.shell-walls-overlay-split {
+  display: flex;
+  gap: 4px;
+}
+
+.shell-walls-overlay-split button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-width: 1px;
+  border-color: #d8c5b1;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.shell-walls-overlay-split button.on {
+  color: #ffffff;
+  background: #2f8f5b;
+  border-color: #2f8f5b;
+}
+
+.shell-walls-overlay-split button:hover,
+.shell-walls-overlay-split button:focus-visible {
+  color: #ffffff;
+  background: #e07b00;
+  border-color: #e07b00;
+  outline: none;
+}
+
+/* On a tablet or phone the grips and buttons on the box are larger, so a finger finds them. */
+@media (pointer: coarse) {
+  .shell-walls-overlay-grip {
+    width: 30px;
+    height: 30px;
+    margin: -15px 0 0 -15px;
+    border-width: 3px;
+  }
+
+  .shell-walls-overlay-grip.end {
+    width: 26px;
+    height: 26px;
+    margin: -13px 0 0 -13px;
+  }
+
+  .shell-walls-overlay-remove {
+    width: 30px;
+    height: 30px;
+    margin: -15px 0 0 -15px;
+  }
+
+  .shell-walls-overlay-split {
+    gap: 8px;
+  }
+
+  .shell-walls-overlay-split button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .shell-walls-overlay-size {
+    font-size: 13px;
+  }
+}
+
+/* Hollow, shaped pocket: the part to choose and the button under it. */
+.shell-pocket-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shell-pocket-add select {
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 8px;
+  color: #3d2c1b;
+  background: #ffffff;
+  border: 1px solid #d8c5b1;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+html[data-theme="dark"] .shell-pocket-add select {
+  color: #f1e6d8;
+  background: #3a3029;
+  border-color: #6b5a4b;
+}
+
+/* Hollow, dividers by hand: the buttons under the drawing (ShellWallsEditor). */
+.shell-walls-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shell-walls-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.shell-walls-actions button {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 8px;
+  color: #6d4b28;
+  background: #ffffff;
+  border: 1px solid #d8c5b1;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shell-walls-actions button:hover:not(:disabled) {
+  color: #98540d;
+  background: #f8f4ed;
+  border-color: #d1995e;
+}
+
+.shell-walls-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+html[data-theme="dark"] .shell-walls-actions button {
+  color: #e8d9c8;
+  background: #3a3029;
+  border-color: #6b5a4b;
+}
+
+html[data-theme="dark"] .shell-walls-actions button:hover:not(:disabled) {
+  color: #ffd9a8;
+  background: #4a3d33;
+  border-color: #b98a55;
+}
+
+/* Hollow, dividers by hand: the box from above (ShellWallsPlan). */
+.shell-walls-plan .shell-walls-plan-pocket {
+  fill: rgba(47, 143, 91, 0.18);
+  stroke: #2f8f5b;
+  pointer-events: none;
+}
+
+.shell-walls-plan .shell-walls-plan-scoop {
+  stroke: #2f8f5b;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.shell-walls-plan {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  margin: 2px 0 6px;
+  touch-action: none;
+  user-select: none;
+}
+
+.shell-walls-plan .shell-walls-plan-box {
+  fill: none;
+  stroke: #b9a48d;
+  stroke-linejoin: round;
+}
+
+.shell-walls-plan .shell-walls-plan-floor {
+  fill: #fbf7f1;
+  stroke: none;
+}
+
+.shell-walls-plan .shell-walls-plan-compartment {
+  fill: #fbf7f1;
+  stroke: none;
+  cursor: pointer;
+  outline: none;
+}
+
+.shell-walls-plan .shell-walls-plan-compartment:hover,
+.shell-walls-plan .shell-walls-plan-compartment:focus-visible {
+  fill: #f6e9d6;
+}
+
+.shell-walls-plan .shell-walls-plan-compartment.picked {
+  fill: #fbd9a8;
+}
+
+.shell-walls-plan .shell-walls-plan-size {
+  fill: #7a6855;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.shell-walls-plan .shell-walls-plan-wall {
+  fill: #9c8670;
+  pointer-events: none;
+}
+
+.shell-walls-plan .shell-walls-plan-wall.picked {
+  fill: #e07b00;
+}
+
+.shell-walls-plan .shell-walls-plan-reach {
+  fill: transparent;
+  cursor: move;
+  outline: none;
+}
+
+.shell-walls-plan .shell-walls-plan-reach:hover,
+.shell-walls-plan .shell-walls-plan-reach:focus-visible {
+  fill: rgba(224, 123, 0, 0.22);
+}
+
+.shell-walls-plan .shell-walls-plan-grip {
+  fill: #ffffff;
+  stroke: #e07b00;
+}
+
+.shell-walls-plan .shell-walls-plan-grip.across {
+  cursor: ew-resize;
+}
+
+.shell-walls-plan .shell-walls-plan-grip.along {
+  cursor: ns-resize;
+}
+
+.shell-walls-plan.disabled .shell-walls-plan-reach,
+.shell-walls-plan.disabled .shell-walls-plan-compartment {
+  cursor: default;
+}
+
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-box {
+  stroke: #7d6a57;
+}
+
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-floor,
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-compartment {
+  fill: #2b241e;
+}
+
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-compartment:hover,
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-compartment:focus-visible {
+  fill: #3a2f25;
+}
+
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-compartment.picked {
+  fill: #5b3f1c;
+}
+
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-size {
+  fill: #d9c8b6;
+}
+
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-wall {
+  fill: #b39c85;
+}
+
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-wall.picked {
+  fill: #ff9d2e;
+}
+
+html[data-theme="dark"] .shell-walls-plan .shell-walls-plan-grip {
+  fill: #2b241e;
+  stroke: #ff9d2e;
+}
+
 .shape-inspector .bent-tube-segment-actions {
   display: flex;
   gap: 8px;
@@ -11645,6 +12160,12 @@ html[data-theme="dark"] .property-hint {
   border-color: #c96f12;
 }
 
+/* A choice that does nothing now (a letter edge on an inlaid tag, #215; too long a text) is greyed out. */
+.name-tag-sides button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .name-tag-letters {
   display: block;
   overflow: hidden;
@@ -12369,6 +12890,28 @@ html[data-theme="dark"] .pattern-picker-empty {
   max-height: calc(100vh - 16px);
 }
 
+/* The mm / in switch in the title of the snap menu at the pointer (Discussion #1933): the menu's own buttons are wide
+   list rows, these stay the small switch of the snap field. */
+.snap-menu-title .snap-units {
+  margin-left: auto;
+}
+
+.snap-menu .snap-menu-title .snap-units button {
+  display: inline-block;
+  width: auto;
+  padding: 0 6px;
+  color: inherit;
+  text-align: center;
+}
+
+.snap-menu .snap-menu-title .snap-units button:hover {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.snap-menu .snap-menu-title .snap-units button[aria-pressed="true"] {
+  background: rgba(127, 127, 127, 0.28);
+}
+
 .snap-menu-title {
   display: flex;
   align-items: center;
@@ -12991,6 +13534,14 @@ html[data-theme="dark"] .pattern-picker-empty {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+.workspace-space-mouse-invert-way {
+  flex-basis: 100%;
+  color: #756657;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .workspace-history-setting {
@@ -14313,6 +14864,7 @@ html[data-theme="dark"] .edge-modifier-target,
 html[data-theme="dark"] .edge-modifier-quick-actions button,
 html[data-theme="dark"] .edge-modifier-footer .secondary,
 html[data-theme="dark"] .edge-modifier-field select,
+html[data-theme="dark"] .magnet-pocket-panel .edge-modifier-field input[type="text"],
 html[data-theme="dark"] .split-axis-control button,
 html[data-theme="dark"] .split-position-value input,
 html[data-theme="dark"] .split-position-pick:not(.active),
@@ -15843,9 +16395,11 @@ html[data-theme="dark"] .theme-check {
   background: rgba(240, 234, 224, 0.6);
 }
 
+/* The selected row is plain to see without the handles in the view: a stronger tone and a bar at its left (Discussion #1893). */
 .outliner-item.selected {
-  background: #faefe0;
+  background: #f6d9ae;
   border-color: rgba(220, 160, 90, 0.4);
+  box-shadow: inset 4px 0 0 #d97a1c;
 }
 
 .outliner-item.hidden-shape {
@@ -15961,6 +16515,19 @@ html[data-theme="dark"] .theme-check {
 .outliner-swatch.small {
   width: 9px;
   height: 9px;
+}
+
+/* In a row of the object list the swatch is a button: it selects every shape of its colour (Discussion #1839). */
+button.outliner-swatch {
+  padding: 0;
+  cursor: pointer;
+  appearance: none;
+}
+
+button.outliner-swatch:hover,
+button.outliner-swatch:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
 .outliner-info {
@@ -16217,8 +16784,9 @@ html[data-theme="dark"] .outliner-item:hover {
 }
 
 html[data-theme="dark"] .outliner-item.selected {
-  background: #3e3223;
+  background: #5a4424;
   border-color: rgba(246, 173, 85, 0.35);
+  box-shadow: inset 4px 0 0 #f6ad55;
 }
 
 html[data-theme="dark"] .outliner-shape-name {
@@ -16910,6 +17478,20 @@ html[data-theme="dark"] .color-recent {
   font-weight: 700;
 }
 
+/* What to try when the browser gave the 3D view no WebGL context. */
+.safe-mode-steps {
+  display: grid;
+  gap: 6px;
+}
+
+.safe-mode-steps ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-inline-start: 22px;
+  list-style: decimal;
+}
+
 .safe-mode-details {
   color: var(--muted-strong);
   font-size: 12px;
@@ -17154,6 +17736,34 @@ html[data-theme="dark"] .color-recent {
   margin-bottom: -14px;
   padding-bottom: 14px;
   background: inherit;
+}
+
+/* The message why a tool refused stays in view with the buttons (Discussion #1869): in a panel that
+   scrolls, the buttons were always there, but the message stood at the very foot, out of sight until
+   one scrolled down - a click on "Hollow" then seemed to do nothing. 60px is the height of the
+   buttons' row with its line and the gap above it; a long message scrolls inside itself. */
+.edge-modifier-panel > .edge-modifier-error:has(+ .edge-modifier-footer) {
+  position: sticky;
+  bottom: 60px;
+  z-index: 1;
+  max-height: 30dvh;
+  overflow-y: auto;
+}
+
+/* What scrolls past must not show in the gap between the message and the buttons' line. */
+.edge-modifier-panel > .edge-modifier-error + .edge-modifier-footer::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 1px);
+  left: 0;
+  height: 15px;
+  background: inherit;
+}
+
+/* The dark message is a little see-through; over the fields that scroll under it, it is not. */
+html[data-theme="dark"] .edge-modifier-panel > .edge-modifier-error:has(+ .edge-modifier-footer) {
+  background: #4e181d;
 }
 
 /* The angles at a selected point's two neighbouring corners (#149): the same, a touch quieter. */
@@ -18334,8 +18944,8 @@ html[data-theme="dark"] .property-card > button.property-card-header:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* Shown with every pointer: a tablet has no Alt key, and many Linux desktops take Alt+click to move the window (#1770). */
 .align-size-toggle {
-  display: none;
   position: absolute;
   left: 12px;
   bottom: 72px;
@@ -18348,6 +18958,14 @@ html[data-theme="dark"] .property-card > button.property-card-header:hover {
   box-shadow: 0 2px 8px rgba(40, 27, 13, 0.22);
   pointer-events: auto;
   touch-action: manipulation;
+}
+
+/* With a mouse the tool rail stands at the left edge; the switch goes beside it. */
+@media not all and (any-pointer: coarse) {
+  .align-size-toggle {
+    left: 76px;
+    bottom: 16px;
+  }
 }
 
 .align-size-toggle.on {
@@ -18517,6 +19135,7 @@ html[data-theme="dark"] .property-card > button.property-card-header:hover {
 .sketch-constraint-list-resize:focus-visible::after {
   opacity: 0.8;
 }
+
 
 /* Print analysis (Druckanalyse) and its layer view. */
 .layer-check-progress {
@@ -18876,6 +19495,40 @@ html[data-theme="dark"] .layer-check-remedy {
   gap: 4px;
 }
 
+.mold-openings ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mold-openings li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.mold-openings li button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mold-openings li button:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.18);
+}
+
 html[data-theme="dark"] .layer-view-readout strong {
   color: #ecdcc9;
 }
@@ -18958,3 +19611,57 @@ html[data-theme="dark"] .demo-crayon-label { filter: brightness(1.35); }
 .sketch-text-hint { font-size: 12px; margin: 0; }
 
 .sketch-text-panel input[type=range] { padding: 0; border: 0; accent-color: var(--accent, #dc850b); }
+/* A multicolour group's parts, each with its own colour, under the Multicolor switch. */
+.part-colors {
+  display: grid;
+  gap: 4px;
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.part-colors > span {
+  opacity: 0.8;
+}
+
+.part-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.part-color-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.part-color-row input[type="color"] {
+  flex: none;
+  width: 32px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+}
+
+/* Fill gaps: its size and its button, under the paint tool's settings. */
+.paint-panel .paint-gaps {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line, rgba(0, 0, 0, 0.08));
+}
+
+.paint-panel .paint-gaps > .paint-gaps-button {
+  justify-content: center;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.paint-panel .paint-gaps > .paint-gaps-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}

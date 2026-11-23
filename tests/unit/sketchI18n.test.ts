@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MESSAGES_EN } from "@/lib/messages.en";
+import { LANGUAGE_INFO, type Language } from "@/lib/languages";
 import { translate, setLanguage } from "@/lib/i18n";
 import { ERROR_RULES, localizedError } from "@/lib/userErrors";
 import { sketchConstraintLabel } from "@/lib/sketchConstraintLabels";
@@ -19,7 +20,9 @@ describe("sketch feature translations", () => {
       const messages = new Map([...source.matchAll(/^\s*"([^"]+)":\s*("(?:[^"\\]|\\.)*")/gm)]
         .map(match => [match[1], JSON.parse(match[2]) as string]));
       for (const [key, english] of entries) {
-        const translated = messages.get(key);
+        const language = file.slice("messages.".length, -".ts".length) as Language;
+        // Upstream adds intentionally partial locales; missing strings use the existing English fallback.
+        const translated = messages.get(key) ?? (!LANGUAGE_INFO[language].complete ? translate(language, key) : undefined);
         expect(translated, `${file}: ${key}`).toBeTruthy();
         expect(placeholders(translated!), `${file}: ${key}`).toEqual(placeholders(english));
       }

@@ -20,13 +20,15 @@ Hitrost zumiranja s kolescem nastaviš z {{ui:workspace.zoomSpeed}} v nastavitva
 
 **Gumbi miške kot v rezalniku.** Če si vajen Bambu Studia ali OrcaSlicerja, v nastavitvah, pod {{ui:workspace.appearance}}, nastavi {{ui:workspace.mouseScheme}} na {{ui:workspace.mouseSchemeSlicer}}. Vlečenje z levim gumbom po praznem mestu potem vrti pogled, desni gumb ga premika kot srednji, Shift z vlečenjem z levim pa riše izbirni okvir. Vlečenje telesa ga še vedno premakne in kratek desni klik še vedno odpre meni. V skici pogled premika tudi desni gumb.
 
-**3D-miška.** SpaceMouse ali druga 3D-miška vrti, premika in približuje 3D-pogled: potisni pokrovček stran za približanje, zdrsni z njim za premik pogleda, nagni ga za nagib pogleda in ga zasukaj za vrtenje pogleda. V nastavitvah, pod {{ui:workspace.controls}}, klikni {{ui:workspace.spaceMouseConnect}} in izberi napravo v oknu, ki ga odpre brskalnik; izbiro si zapomni, zato je to treba narediti le enkrat. Deluje v Chromu in Edgeu, ki do takih naprav lahko dostopata; Firefox in Safari ne. Če je katera smer narobe obrnjena, jo obkljukaj pod gumbom: premik v stran, premik gor in dol, povečava, nagib ali vrtenje. Nekatere 3D-miške brskalnik najde tudi kot igralni krmilnik; layerling jo potem prevzame sam, takoj ko premakneš pokrovček, brez klika na {{ui:workspace.spaceMouseConnect}} po ponovnem zagonu.
+**3D-miška.** SpaceMouse ali druga 3D-miška vrti, premika in približuje 3D-pogled: potisni pokrovček stran za približanje, zdrsni z njim za premik pogleda, nagni ga za nagib pogleda in ga zasukaj za vrtenje pogleda. V nastavitvah, pod {{ui:workspace.controls}}, klikni {{ui:workspace.spaceMouseConnect}} in izberi napravo v oknu, ki ga odpre brskalnik; izbiro si zapomni, zato je to treba narediti le enkrat. Deluje v Chromu in Edgeu, ki do takih naprav lahko dostopata; Firefox in Safari ne. Če je katera smer narobe obrnjena, jo obkljukaj pod gumbom: premik v stran, premik gor in dol, povečava, nagib ali vrtenje. Nekatere 3D-miške brskalnik najde tudi kot igralni krmilnik; layerling jo potem prevzame sam, takoj ko premakneš pokrovček, brez klika na {{ui:workspace.spaceMouseConnect}} po ponovnem zagonu. Miška, prevzeta kot igralni krmilnik, si obkljukane smeri zapomni ločeno od tistih, ki veljajo po {{ui:workspace.spaceMouseConnect}}, ker nekatere naprave tam delujejo obratno; vrstica pod polji pove, kdaj se miška bere na ta način.
 
 Na tablici ali telefonu dva prsta (razmikanje in približevanje) zumirata, skupno premikanje obeh pa premika pogled. En prst dela na načrtu, tako kot levi gumb miške. Kdor bi rad vrtel z enim prstom, v vrstici pogleda vklopi {{ui:camera.touchRotate}}. Stikalo se pokaže samo na napravah z zaslonom na dotik.
 
 Grafična tablica s pisalom se obnaša kot miška: konica je levi gumb, stranska tipka na pisalu pa desni, za vrtenje pogleda in za meni. Hitre tipke tablice v njenem gonilniku povežeš z [bližnjicami na tipkovnici](chapter:bliznjice) programa layerling.
 
 **Na tabličnem računalniku delaj s pisalom, če lahko.** Njegova konica je veliko tanjša od konice prsta in ne zakriva tistega, na kar ciljaš, zato majhne točke, tanke črte in ročaje v skici, merilne točke in robove zadeneš natančno, daljše delo pa je manj utrujajoče. layerling prstu že pusti, da seže malo dlje do točk, črt, ročajev in robov kot kazalec miške, vendar pisalo ostaja natančnejša pot.
+
+Tablica nima desnega gumba miške: pol sekunde drži prst pri miru na obliki ali na praznem mestu in odpre se meni, ki ga odpre desni klik, na praznem mestu z **Izberi vse**. **Izberi več** v istem meniju na tablici nadomešča Shift: vsak dotik telesa ga potem doda v izbor ali ga spet odstrani, dokler se ne dotakneš praznega mesta ali pritisneš [[Esc]]; prst na praznem mestu še vedno vrti pogled. Ročice okoli izbrane oblike lahko s prstom primeš tudi malo ob njih.
 
 ### Orientacijska kocka
 
@@ -71,11 +73,9 @@ V vsakem načrtu lahko shraniš tudi štiri lastne poglede. [[Shift]]+[[7]], [[S
 - {{ui:camera.sectionMeasure}} meri neposredno na prerezu: obris se pokaže modro, dva klika nanj dasta razdaljo, zraven še njene deleže vzdolž obeh osi ravnine. Obe točki se zaskočita na obris, na ogliščih prednostno. Če je drugi klik kjerkoli na nasprotni steni, se zaskoči pravokotno na prvo točko – tako odčitaš debeline sten, reže in zračnosti, ne da bi moral natančno ciljati. Tretji klik začne naslednje merjenje, [[Esc]] merjenje konča. Če ravnino premakneš, merjenje izgine.
 - {{ui:camera.sectionExportSvg}} shrani obrise na ravnini prereza kot SVG v merilu 1:1, za laser, plotter, šablone ali tesnila. X-prerez je viden z desne, Y-prerez od spredaj, Z-prerez od zgoraj. Kot pri izvozu vanj pridejo samo vidna telesa, luknje so že odštete, telesa iste barve pa so združena v en obris. Vsaka barva ostane svoja pot brez polnila, tako da jo programska oprema za laser loči kot plasti.
 
-Križec in [[Esc]] zapreta okno orodja; če merjenje teče, ga [[Esc]] najprej konča. Prerez ostane, dokler ga ne izklopiš z {{ui:camera.sectionActive}}, ne klikneš njegovega gumba v vrstici, medtem ko je okno odprto, ali se ne vrneš na pregled načrtov. Dokler je vklopljen, njegov gumb ostane poudarjen. Kar postaviš na odrezano stran, se pokaže šele, ko prerez izklopiš. Tablica nima [[Esc]], zato ima okno orodja tam dva gumba več: {{ui:camera.sectionBack}} konča merjenje, če teče, sicer zapre okno orodja, {{ui:camera.sectionConfirm}} pa zapre okno orodja v enem koraku. Računalnik ju ne pokaže.
-
 Okno visi na svojem gumbu. Če kaj zakriva, ga povlečeš za naslovno vrstico po delovni površini; tam se odpre tudi naslednjič. Dvoklik na naslovno vrstico ali odložitev na gumb ga vrne nazaj.
 
-[[Esc]] zapre okno; prerez ostane, dokler ga ne izklopiš ali se ne vrneš na pregled načrtov. Dokler je vklopljen, je gumb poudarjen. Kar potem odložiš na odrezani strani, vidiš šele, ko prerez izklopiš.
+Križec in [[Esc]] zapreta okno orodja; če merjenje teče, ga [[Esc]] najprej konča. Prerez ostane, dokler ga ne izklopiš z {{ui:camera.sectionActive}}, ne klikneš njegovega gumba v vrstici, medtem ko je okno odprto, ali se ne vrneš na pregled načrtov. Dokler je vklopljen, njegov gumb ostane poudarjen. Kar postaviš na odrezano stran, se pokaže šele, ko prerez izklopiš. Tablica nima [[Esc]], zato ima okno orodja tam dva gumba več: {{ui:camera.sectionBack}} konča merjenje, če teče, sicer zapre okno orodja, {{ui:camera.sectionConfirm}} pa zapre okno orodja v enem koraku. Računalnik ju ne pokaže.
 
 ## Delovna ravnina
 
@@ -111,8 +111,8 @@ Okno za izvoz nato ponudi {{ui:export.plates}}: vse plošče v eni datoteki, dru
 
 ## Mreža in pripenjanje
 
-Mreža kaže velikost plošče. Spodaj desno je **pripenjanje**: premikanje in spreminjanje velikosti se zaskočita v korakih te velikosti, na primer 1 mm. Za drobno delo ga nastaviš manjšega, za grobo razporejanje večjega. {{ui:editor.tool.snapToGrid}} v orodni vrstici naknadno pomakne izbrane oblike na najbližje presečišče mreže. Pri premikanju se oblike poleg tega zaskočijo na druge oblike, glej [Izbiranje in razporejanje](chapter:izbiranje-in-razporejanje).
-Kratek klik s srednjo miškino tipko, brez premikanja miške, odpre meni koraka pripenjanja tik ob kazalcu, tudi v skici; vlečenje s pritisnjeno srednjo tipko še naprej premika pogled.
+Mreža kaže velikost plošče. Spodaj desno je **pripenjanje**: premikanje in spreminjanje velikosti se zaskočita v korakih te velikosti, na primer 1 mm. Za drobno delo ga nastaviš manjšega, za grobo razporejanje večjega. {{ui:editor.tool.snapToGrid}} v orodni vrstici naknadno pomakne izbrane oblike na najbližje presečišče mreže. Pri premikanju se oblike poleg tega zaskočijo na druge oblike, glej [Izbiranje in razporejanje](chapter:izbiranje-in-razporejanje). Brez miške: [[Alt]]+[[1]] do [[Alt]]+[[0]] izberejo ta vnos menija ([[Alt]]+[[1]] izklopi pripenjanje), [[,]] in [[.]] pa naredita korak za stopnjo finejši ali grobejši. To deluje tudi v skici.
+Kratek klik s srednjo miškino tipko, brez premikanja miške, odpre meni koraka pripenjanja tik ob kazalcu, tudi v skici; vlečenje s pritisnjeno srednjo tipko še naprej premika pogled. V 3D-urejevalniku ima njegova naslovna vrstica tudi stikalo mm / in, tako da preklapljaš med milimetri in palci, ne da bi se zaprl.
 
 > **Namig:** Ne vrti več pogleda, ko deleže natančno postavljaš drug ob drugega. S številskimi tipkami preklopi na raven pogled od zgoraj ali od spredaj in s [[O]] preklopi na ploski prikaz. Tako takoj vidiš, ali sta dva roba res poravnana.
 
@@ -196,6 +196,8 @@ Skicirni pogled ima lastne barve: {{ui:workspace.sketchBackground}} za okno okol
 
 {{ui:workspace.showStepNotices}}: po koraku, kot je združitev, kratko sporočilo ob kocki pogleda pove, kaj se je zgodilo, in ponudi {{ui:shortcuts.undo}}. Izklopljeno teh sporočil ni; sporočila, ki od vas nekaj želijo ali sporočajo težavo, se še vedno prikažejo, {{ui:editor.tool.undo}} na traku pa ob premiku miške še vedno navede korak.
 
+{{ui:workspace.viewCubeKeepsTurn}}: klik na Zgoraj ali Spodaj na kocki pogleda ali tipki 5 in 6 pogleda naravnost navzdol ali navzgor in pusti pogled zasukan, kot stoji, zaokroženo na najbližjo četrtino obrata. Če si ploščo gledal z desne, ostane desna stran spodaj. Izklopljeno, kot na začetku, je sprednja stran vedno spodaj.
+
 {{ui:workspace.startView}} določa kot, pod katerim se odpre nov načrt in na katerega se vrne {{ui:camera.home}}. Zavrti in približaj pogled, kot ti je všeč, nato klikni {{ui:workspace.startViewUseCurrent}}; {{ui:workspace.startViewStandard}} vrne običajni pogled od spredaj desno. Velja za vsak načrt v tem brskalniku. Načrt, ki ga znova odpreš, se še vedno odpre tako, kot si ga zapustil.
 
 {{ui:workspace.zoomSpeed}} je drsnik od počasi do hitro: kako hitro približujeta kolesce in sledilna ploščica; gumbi in tipke za povečavo obdržijo svoje majhne korake. {{ui:workspace.panSpeed}} je prav tako drsnik od počasi do hitro: kako hitro pogled sledi miški, ko ga premikaš; na sredini ostane točka, ki jo primeš, pod kazalcem. {{ui:workspace.cameraInertia}}: ko spustiš miško, se pogled še malo vrti ali premika in nežno zavira. Izklopljeno pomeni, da se takoj ustavi, kot v Tinkercadu in Fusion 360.
@@ -212,7 +214,7 @@ Pod {{ui:workspace.measurement}} v nastavitvah nastaviš {{ui:workspace.units}}.
 
 Pod {{ui:workspace.customSnapGrids}} na istem mestu ustvariš lastne korake pripenjanja: ime in velikost v milimetrih, na primer »Rastrski korak 2,54 mm« za razmik DIP vezij, pinskih letvic in perforiranih plošč ali »MX Key Unit« z 19,05 mm za razmik tipk na tipkovnici. Meni pripenjanja ta korak potem ponudi celega, razpolovljenega in razčetverjenega (1 ×, ½ × in ¼ ×), tako da lahko oblike premakneš za cel, pol ali četrt koraka. Če želiš samo mero samo, odkljukaj {{ui:workspace.customSnapGridParts}} ob njej; meni ima potem samo ta en korak. Lastni koraki ostanejo pri načrtu in gredo zraven z {{ui:workspace.makeDefault}}.
 
-{{ui:workspace.startWithCornerRuler}}: vsak nov osnutek v tem brskalniku se potem začne s kotnikom v izhodišču, glej [Merjenje in opombe](chapter:merjenje-in-opombe). Obstoječi osnutki ostanejo, kot so, in kotnik, ki ga odstraniš iz osnutka, se ne vrne.
+{{ui:workspace.startWithCornerRuler}}: vsak nov osnutek v tem brskalniku se potem začne s kotnikom v izhodišču, glej [Merjenje in opombe](chapter:merjenje-in-opombe). Obstoječi osnutki ostanejo, kot so, in kotnik, ki ga odstraniš iz osnutka, se ne vrne. Pod tem {{ui:workspace.startCornerRulerPlace}} ponuja {{ui:workspace.startCornerRulerPlace.origin}} ali {{ui:workspace.startCornerRulerPlace.plateCorner}}: kotnik potem zajame ploščo tiskalnika, izbranega v nastavitvah, z vogalom spredaj levo.
 
 ### Delovna ravnina: plošča in tiskalnik
 

@@ -1,6 +1,7 @@
 import {regenerateSketchTexts} from "@/lib/sketchText";
 import {sketchRaisedTextPlan} from "@/lib/sketchRaisedText";
 
+import { flushSketchSolid } from "@/lib/flushSketch";
 import { t } from "@/lib/i18n";
 import { isBuildMessage, reportWorkerBuild } from "@/lib/buildStamp";
 import { createKernelGate, isKernelStatusMessage, type KernelGate } from "@/lib/cadKernelGate";
@@ -16,7 +17,7 @@ import { sweepPlan } from "@/lib/cadSketchSweep";
 import { SKETCH_LOFT_FAILED, SKETCH_LOFT_HOLES, SKETCH_LOFT_OUTLINES, SKETCH_LOFT_STROKE_UNSUPPORTED, type SketchLoftSection } from "@/lib/cadSketchLoft";
 import { filledGrowPockets, steppedEdgeWall, strokeEdgeChamfer, strokedSketchProfile } from "@/lib/sketchStroke";
 import { keyringSketchProfile } from "@/lib/sketchKeyring";
-import { bakedSketchPose } from "@/lib/sketchPlacement";
+import { bakedSketchPose, sketchBodyAnchor } from "@/lib/sketchPlacement";
 import type { ManifoldToplevel } from "manifold-3d";
 import type { CadModifierDeflection } from "@/lib/cadModifierTypes";
 import { SKETCH_EDGE_FAILED, SKETCH_INSET_UNSUPPORTED, SKETCH_STROKE_UNSUPPORTED, type SketchCadBuildResponse } from "@/lib/sketchCadTypes";
@@ -119,6 +120,20 @@ export async function remeshCadBrep(brep: string, deflection: CadModifierDeflect
   return response.type === "built" ? response : null;
 }
 
+/**
+ * What shapeFromCadMesh measures a rebuilt sketch body against: the body is built in the sketch's own coordinates, so
+ * its middle is compared with where the body's sketch had its middle before (sketchBodyAnchor, the CAD frame), not with
+ * where the body stands in the world. Compared with the world place, a body standing within a tenth of a millimetre
+ * of where it was drawn had its new middle snapped to that place while the old one was not, and every sketch edit moved
+ * it by half a facet's reach: a hook went 0.00024 mm off the plate it was aligned to, and a fillet along the joint then
+ * treated it as a body of its own (#1954). Against the old middle, a body whose outline did not move keeps it exactly.
+ */
+export function sketchMeshReference(source: WorkplaneShape, existing?: WorkplaneShape | null): WorkplaneShape {
+  if (!existing) return source;
+  const anchor = sketchBodyAnchor(existing);
+  return { ...source, x: anchor.x, z: anchor.z, elevation: existing.cadBrepFrame?.elevation ?? 0, rotation: 0, rotationX: 0, rotationZ: 0 };
+}
+
 export async function cadShapeFromSketchProfile(profile: SketchProfile, height: number, existing?: WorkplaneShape | null) {
   const hasRaised=profile.texts?.some(text=>text.connections?.mode==='backer'&&text.raised);
   if(hasRaised){await getManifoldRuntime();profile=regenerateSketchTexts(profile);}
@@ -129,7 +144,10 @@ export async function cadShapeFromSketchProfile(profile: SketchProfile, height: 
   const topChamfer = strokeEdgeChamfer(profile.stroke, safeHeight);
   const buildOnWorker = (build: SketchProfile, stroke?: SketchStroke, inset?: SketchInset) =>
     requestSketchCad({ type: "build", profile: cloneSketchProfile(build), height: safeHeight, ...(stroke ? { stroke } : {}), ...(inset ? { inset } : {}), ...(topChamfer > 0 ? { topChamfer } : {}) });
-  let response: SketchCadBuildResponse;
+  // An icon tag layer laid in flush (#215): the layer above lies in a pocket in its top, which the 2D kernel builds as a mesh.
+  const flushed = profile.flush?.pocket ? flushSketchSolid(await getManifoldRuntime(), profile, safeHeight) : null;
+  if (profile.flush?.pocket && !flushed) throw new Error(t("sketch.strokeEmpty"));
+  let response: SketchCadBuildResponse | null = null;
   // A key ring hole (#391): the outline the sketch fills with its ear and its hole is worked out here and built as an area.
   const withKeyring = profile.keyring ? keyringSketchProfile(await getManifoldRuntime(), profile) : null;
   // With No holes and a "Wider" line, parts that touch once wider can close a pocket between
@@ -141,11 +159,14 @@ export async function cadShapeFromSketchProfile(profile: SketchProfile, height: 
   const insetSource = letterSegmentIds.size ? {...buildProfile,segments:buildProfile.segments.filter(segment=>!letterSegmentIds.has(segment.id))} : buildProfile;
   const strokedInset = profile.stroke && profile.inset ? insetSketchProfile(await getManifoldRuntime(), insetSource, profile.inset) : null;
   if (profile.stroke && profile.inset && !strokedInset) throw new Error(t("faceTool.empty"));
-  if(hasRaised){
+  if (flushed) {
+    // Flush geometry is built below as a mesh.
+  } else if(hasRaised){
     const plan=sketchRaisedTextPlan(buildProfile);
     let ordinary=plan.profile;
     if(profile.stroke)ordinary=strokedSketchProfile(await getManifoldRuntime(),ordinary)??{points:[],segments:[]};
     response=await requestSketchCad({type:"build",profile:cloneSketchProfile(ordinary),height:safeHeight,textStacks:plan.stacks});
+
   } else if (withKeyring) {
     response = await buildOnWorker(withKeyring);
   } else if (profile.stroke && buildProfile.texts?.length) {
@@ -187,11 +208,11 @@ export async function cadShapeFromSketchProfile(profile: SketchProfile, height: 
   }
   // Where the kernel cannot chamfer the cutting edge (a logo's sharp points), the wall is built with the edge in fine steps,
   // from polygon offsets, as a mesh instead of an exact body (#982).
-  let stepped: ReturnType<typeof steppedEdgeWall> = null;
-  if (response.type === "error" && response.message === SKETCH_EDGE_FAILED) {
+  let stepped: ReturnType<typeof steppedEdgeWall> = flushed;
+  if (response?.type === "error" && response.message === SKETCH_EDGE_FAILED) {
     stepped = steppedEdgeWall(await getManifoldRuntime(), { ...buildProfile, stroke: profile.stroke }, safeHeight, topChamfer);
     if (!stepped) throw new Error(t("sketch.edgeFailed"));
-  } else if (response.type === "error") {
+  } else if (response?.type === "error") {
     throw new Error(response.message);
   }
   const source = canonicalizeShape({
@@ -216,12 +237,12 @@ export async function cadShapeFromSketchProfile(profile: SketchProfile, height: 
     cadDisplayEdgesVersion: undefined,
   });
   if (stepped) {
-    const mesh = shapeFromCadMesh(source, stepped.positions, new Float32Array(0), stepped.indices, "");
+    const mesh = shapeFromCadMesh(sketchMeshReference(source, existing), stepped.positions, new Float32Array(0), stepped.indices, "");
     if (!mesh) throw new Error(t("sketch.edgeFailed"));
     return withExtrudeDeformsKept({ ...mesh, cadBrep: undefined, cadBrepFrame: undefined, cadMeshDeflection: undefined, sketchProfile: cloneSketchProfile(profile), sketchOperation: "extrude" as const, sketchPose: undefined }, existing);
   }
-  if (response.type === "error") throw new Error(response.message);
-  const shape = shapeFromCadMesh(source, response.positions, response.normals, response.indices, response.brep, response.deflection ?? SKETCH_CAD_DEFLECTION);
+  if (!response || response.type === "error") throw new Error(response?.message ?? t("sketch.strokeEmpty"));
+  const shape = shapeFromCadMesh(sketchMeshReference(source, existing), response.positions, response.normals, response.indices, response.brep, response.deflection ?? SKETCH_CAD_DEFLECTION);
   if (!shape) throw new Error("OpenCascade returned an empty sketch solid");
   // Built in the sketch's own coordinates, not baked where a body stands: no pose to keep.
   return withExtrudeDeformsKept({ ...shape, sketchProfile: cloneSketchProfile(profile), sketchOperation: "extrude" as const, sketchPose: undefined }, existing);
@@ -286,7 +307,7 @@ export async function cadShapeFromSketchSweep(profile: SketchProfile, existing?:
     cadDisplayEdges: undefined,
     cadDisplayEdgesVersion: undefined,
   });
-  const shape = shapeFromCadMesh(source, response.positions, response.normals, response.indices, response.brep, response.deflection ?? SKETCH_CAD_DEFLECTION);
+  const shape = shapeFromCadMesh(sketchMeshReference(source, existing), response.positions, response.normals, response.indices, response.brep, response.deflection ?? SKETCH_CAD_DEFLECTION);
   if (!shape) throw new Error(t("sketch.sweepFailed"));
   return { ...shape, sketchProfile: cloneSketchProfile(profile), sketchOperation: "sweep" as const };
 }

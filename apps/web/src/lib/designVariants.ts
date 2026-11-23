@@ -13,3 +13,16 @@ export function variantDraft(current:ProjectVariable[],variant:DesignVariant):Pr
  });
  return compileVariableDraft(current,draft);
 }
+
+/** Give every preset its own baseline for variables introduced after it was saved. */
+export function extendVariantVariables(variants:DesignVariant[],current:ProjectVariable[]):DesignVariant[]{
+ let changed=false;
+ const next=variants.map(variant=>{
+  const ids=new Set(variant.variables.map(variable=>variable.id));
+  const added=current.filter(variable=>!ids.has(variable.id));
+  if(!added.length)return variant;
+  changed=true;
+  return {...variant,variables:[...variant.variables,...added.map(variable=>({...variable,refs:{...variable.refs}}))]};
+ });
+ return changed?next:variants;
+}

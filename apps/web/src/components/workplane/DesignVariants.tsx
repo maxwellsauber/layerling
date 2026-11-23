@@ -2,12 +2,13 @@
 import {useEffect,useRef,useState} from 'react';
 import {Pencil,Plus,Trash2,Save} from 'lucide-react';
 import {createLocalId} from '@/lib/localIds';
-import {variantDraft,type DesignVariant} from '@/lib/designVariants';
+import {variantDraft,extendVariantVariables,type DesignVariant} from '@/lib/designVariants';
 import {validateProjectVariables,type ProjectVariable} from '@/lib/projectVariables';
 
 export function DesignVariants({projectId,variables,onApply,disabled}:{projectId:string;variables:ProjectVariable[];onApply:(draft:ProjectVariable[])=>Promise<void>;disabled:boolean}){
  const applying=useRef(false);
  const [working,setWorking]=useState(false);
+ const [loadedKey,setLoadedKey]=useState('');
  const key=`layerling.designVariants.${projectId}`;
  const [variants,setVariants]=useState<DesignVariant[]>([]),[selected,setSelected]=useState('');
  const [editing,setEditing]=useState(false),[name,setName]=useState(''),[error,setError]=useState('');
@@ -20,7 +21,7 @@ export function DesignVariants({projectId,variables,onApply,disabled}:{projectId
     try{if(!v||typeof v.id!=='string'||typeof v.name!=='string')return false;validateProjectVariables(v.variables);return true;}catch{return false;}
    });
   }catch{/* Storage may be unavailable. Saving will explain the problem. */}
-  setVariants(list);
+  setVariants(list);setLoadedKey(key);
   let remembered='';try{remembered=localStorage.getItem(`${key}.selected`)??'';}catch{}
   setSelected(list.some(v=>v.id===remembered)?remembered:'');setEditing(false);setError('');
  },[key]);
@@ -29,6 +30,11 @@ export function DesignVariants({projectId,variables,onApply,disabled}:{projectId
   try{localStorage.setItem(key,JSON.stringify(next));setVariants(next);setError('');return true;}
   catch{setError('Could not save presets in this browser.');return false;}
  };
+ useEffect(()=>{
+  if(loadedKey!==key||working)return;
+  const next=extendVariantVariables(variants,variables);
+  if(next!==variants)store(next);
+ },[key,loadedKey,variables,variants,working]);
  const current=variants.find(v=>v.id===selected);
  let modified=false;
  if(current){try{modified=JSON.stringify(variantDraft(variables,current))!==JSON.stringify(variables);}catch{modified=true;}}

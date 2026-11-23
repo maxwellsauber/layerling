@@ -1,4 +1,5 @@
 "use client";
+import {highlightDependencyTarget} from '@/lib/highlightDependencyTarget';
 import {DesignVariants} from "./DesignVariants";
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {ChevronDown,ChevronUp,Pencil,Plus,Trash2,X} from 'lucide-react';
@@ -7,7 +8,7 @@ import {useMovablePanel} from '@/lib/useMovablePanel';
 import type {WorkplaneShape} from '@/types/layerling';
 import {createLocalId} from '@/lib/localIds';
 import {t} from '@/lib/i18n';
-export function ProjectVariablesPanel({variables,shapes,onApply,onClose,projectId}:{projectId?:string|null;variables:ProjectVariable[];shapes:WorkplaneShape[];onApply:(draft:ProjectVariable[])=>void|Promise<void>;onClose:()=>void}){
+export function ProjectVariablesPanel({variables,shapes,onApply,onClose,projectId,focusVariableId,focusRequest}:{focusRequest?:number;focusVariableId?:string|null;projectId?:string|null;variables:ProjectVariable[];shapes:WorkplaneShape[];onApply:(draft:ProjectVariable[])=>void|Promise<void>;onClose:()=>void}){
  const [draft,setDraft]=useState(variables),[error,setError]=useState(''),[busy,setBusy]=useState(false),[collapsed,setCollapsed]=useState(false);
  const [editing,setEditing]=useState<{id:string;field:'name'|'expression'}|null>(null);
  const inputRef=useRef<HTMLInputElement>(null),cancelled=useRef(false),pending=useRef(false);
@@ -25,6 +26,7 @@ export function ProjectVariablesPanel({variables,shapes,onApply,onClose,projectI
   }
  },[]);
  useEffect(()=>setDraft(variables),[variables]);
+ useEffect(()=>{if(focusVariableId){setCollapsed(false);const row=Array.from(movable.panelRef.current?.querySelectorAll<HTMLElement>('[data-variable-id]')??[]).find(element=>element.dataset.variableId===focusVariableId);highlightDependencyTarget(row?.querySelector<HTMLElement>('.project-variable-expression button')??null);}},[focusVariableId,focusRequest,collapsed]);
  useEffect(()=>{inputRef.current?.focus();inputRef.current?.select();},[editing]);
  let values=new Map<string,number>();try{values=resolveProjectVariables(compileVariableDraft(variables,draft));}catch{/* Show validation errors on commit, without interrupting typing. */}
  const save=async(next:ProjectVariable[],closeEditor=true)=>{
@@ -55,7 +57,7 @@ export function ProjectVariablesPanel({variables,shapes,onApply,onClose,projectI
     pending.current=true;setBusy(true);setError('');
     try{await onApply(next);setDraft(next);}finally{pending.current=false;setBusy(false);}
   }}/>}<ul className="outliner-list project-variables-list">
-   {draft.map(v=>{const used=parameterUsage(variables,shapes,v.id);return <li className="project-variable-row" key={v.id}>
+   {draft.map(v=>{const used=parameterUsage(variables,shapes,v.id);return <li className="project-variable-row" data-variable-id={v.id} key={v.id}>
     <span className="project-variable-function" aria-hidden="true">ƒ</span>
     <div className="outliner-info">{editor(v,'name')}<div className="project-variable-expression">{editor(v,'expression')}</div></div>
     <output className="project-variable-result" title={t('variables.result')}>{values.get(v.id)??'—'} <small>mm</small></output>

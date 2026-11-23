@@ -127,6 +127,10 @@ export type ShapeCustomization = {
   height?: number;
   maxDimension?: number;
   cornerFillet?: number;
+  /** Polygon: a flat side faces the front instead of a corner, so an octagon measures from flat to flat (Discussion #1787). */
+  polygonFlat?: boolean;
+  /** Polygon: the Roof of the shape library (#1931), three sides for good; its panel offers no side count and no flat side. */
+  polygonRoof?: boolean;
   /** Rounded box with flat top and bottom: an own radius for each corner (back left, back right, front right, front left); wins over cornerFillet. */
   cornerFillets?: [number, number, number, number];
   topBottomFillet?: number;
@@ -324,6 +328,10 @@ export type ShapeCustomization = {
   gridfinityLargePlate?: boolean;
   /** Gridfinity baseplate: Swallowtail, on a 2.4 mm floor with a pocket for a key under each side without padding (#1061); missing means off. */
   gridfinitySwallowtail?: boolean;
+  /** Gridfinity baseplate: notches in its sides for ostat's wall clips, which join plates printed in pieces. */
+  gridfinityClipNotches?: boolean;
+  /** Gridfinity baseplate with clip notches: how many clips Add clips lays out, 1 unless set. */
+  gridfinityClipCount?: number;
   /** Gridfinity baseplate with Swallowtail: the clearance of the keys Add keys lays out, in mm on every side; missing means 0.05, at most 0.15; the plate stays as it is (#1061). */
   gridfinitySwallowtailClearance?: number;
   /** Gridfinity bin: a label shelf along the back wall. */
@@ -628,6 +636,8 @@ export type WorkplaneWorkspaceSettings = {
   viewBarOpensOnHover: boolean;
   /** The short message after a step, such as a union, with its Undo button (Discussion #1708); on by default. Off, messages that want something, warn or carry a button of their own still show. */
   showStepNotices: boolean;
+  /** A click on Top or Bottom of the view cube (or 5 and 6) keeps the view turned as it stands, to the nearest quarter turn, instead of the front at the bottom (Discussion #1967); off by default. */
+  viewCubeKeepsTurn: boolean;
   zoomSpeed: number;
   /** How fast shifting the 3D view follows the mouse, a slider from 1 to 9; at 5 the grabbed point stays under the cursor (#1553). */
   panSpeed: number;
@@ -720,6 +730,19 @@ export type SketchImage = {
 export type SketchStrokeAlign = "center" | "inside" | "outside" | "grow" | "shrink";
 export type SketchStrokeJoin = "miter" | "round" | "bevel";
 export type SketchStrokeCap = "flat" | "square" | "round";
+/**
+ * A layer of a name tag or an icon tag laid in flush instead of stacked: all layers end on the same top. Every layer above the
+ * bottom one is `depth` high; the bottom one keeps its own height and carries the others. Each layer has a pocket `depth` deep
+ * in its top, the shape of the layer above it (`pocket`: that layer's widening, corners and holes), which that layer fills - so
+ * the colours lie side by side on one flat face, none on another. `height` is the layer's own height in the stack, kept so the
+ * stack comes back as it was when it is stacked again. The top layer has no pocket.
+ */
+export type FlushLayer = {
+  depth: number;
+  height: number;
+  pocket?: { grow: number; join?: SketchStrokeJoin; silhouette?: boolean };
+};
+
 /**
  * A sketch drawn as a line of this width instead of a filled area (#154). `edge` makes the wall a cutting edge (#982): its top
  * runs in to that width with a 45° chamfer on both sides; only for a line inside, outside or centred, and narrower than the line.
@@ -833,6 +856,8 @@ export type SketchProfile = {
   silhouette?: boolean;
   /** A key ring hole cut through the body, with its ear on the bottom layer of an icon tag (#391). */
   keyring?: SketchKeyring;
+  /** A layer of an icon tag laid in flush, as a name tag's (textFlush): see FlushLayer. */
+  flush?: FlushLayer;
   /** Built set in from its outlines by the face tool: the body keeps the face's outline and builds the inset from it. */
   inset?: SketchInset;
   /** Which edge of a swept cross-section runs along the path: "center" (the default, left out) or "left"/"right" as seen along the path. */
@@ -869,6 +894,18 @@ export type GridfinityCompartmentLabel = {
   align?: "start" | "middle" | "end";
   width?: number;
   text?: string;
+};
+
+/**
+ * One compartment of a Gridfinity bin with dividers split further (#1799): column 0 is the left, row 0 the back, as for
+ * a label. `x` is how many parts it is split into across and `z` how many deep, each a whole number from 1 (missing is
+ * 1); the parts are evenly spaced, with dividers as thick and as high as the bin's between them.
+ */
+export type GridfinityCompartmentSplit = {
+  column: number;
+  row: number;
+  x?: number;
+  z?: number;
 };
 
 /**
@@ -964,9 +1001,9 @@ export type EdgeTreatmentFeature = {
   /** Only with `shellStack`: the foot hollow (the floor on the plate) instead of solid, and a grip recess `grip` mm wide, `gripDepth` deep, at the front of the bottom. */
   shellStackFoot?: { hollow?: boolean; grip?: number; gripDepth?: number };
   /** Only for "shell" with the top open: a Gridfinity baseplate in the floor with at most `cells` cells; with `fit` the walls are thickened to the cells. */
-  shellGrid?: { cells: number; fit?: boolean; magnets?: boolean };
+  shellGrid?: { cells: number; fit?: boolean; magnets?: boolean; screws?: boolean };
   /** Only for "shell" with the top open: this many dividers across (x) and along (z) the inside, evenly spaced. */
-  shellDividers?: { x: number; z: number; height?: number; thickness?: number };
+  shellDividers?: { x: number; z: number; height?: number; thickness?: number; manual?: boolean; walls?: { dir: "x" | "z"; at: number; from: number; to: number; slant?: number }[]; angle?: number; scoops?: { x: number; z: number; side: "front" | "back" | "left" | "right" }[]; scoopRadius?: number; pockets?: { points: { x: number; z: number }[]; depth: number }[]; pocketFill?: number };
   /** Only for "shell" with the top open (#1663): the width in mm of a ledge round the inside of the wall for a plate to rest on; missing means none. */
   shellShelf?: number;
   /** Only with `shellShelf`: how high in mm the top of the ledge lies above the inside of the floor. */
@@ -1080,8 +1117,14 @@ export type CadPrimitiveFrame = {
   frame: CadBrepFrame;
 };
 
-/** The top edge of a text's letters: rounded or chamfered, `size` mm wide and high (#225). */
-export type TextEdge = { kind: "round" | "chamfer"; size: number };
+/** Which end of a text's letters takes the edge: the top (left out), the bottom or both. */
+export type TextEdgeSide = "top" | "bottom" | "both";
+
+/**
+ * The edge of a text's letters: rounded or chamfered, `size` mm wide and high (#225), on the top
+ * unless `side` says the bottom or both ends; only "bottom" and "both" are stored.
+ */
+export type TextEdge = { kind: "round" | "chamfer"; size: number; side?: "bottom" | "both" };
 
 /** A section of a transition between its bottom and its top (#1034). */
 export type LoftSvgProfile = { name: string; points: Array<{ x: number; z: number }>; sketchId?: string };
@@ -1362,6 +1405,10 @@ export type WorkplaneShape = {
   gridfinityLargePlate?: boolean;
   /** Gridfinity baseplate: Swallowtail, on a 2.4 mm floor with a pocket for a key under each side without padding (#1061); missing means off. */
   gridfinitySwallowtail?: boolean;
+  /** Gridfinity baseplate: notches in its sides for ostat's wall clips, which join plates printed in pieces. */
+  gridfinityClipNotches?: boolean;
+  /** Gridfinity baseplate with clip notches: how many clips Add clips lays out, 1 unless set. */
+  gridfinityClipCount?: number;
   /** Gridfinity baseplate with Swallowtail: the clearance of the keys Add keys lays out, in mm on every side; missing means 0.05, at most 0.15; the plate stays as it is (#1061). */
   gridfinitySwallowtailClearance?: number;
   /** Gridfinity bin: a label shelf along the back wall. */
@@ -1478,6 +1525,8 @@ export type WorkplaneShape = {
   gridfinityDividerPositionsZ?: number[];
   /** Gridfinity bin with dividers: the compartments' labels, one for each compartment that has one. */
   gridfinityCompartmentLabels?: GridfinityCompartmentLabel[];
+  /** Gridfinity bin with dividers: the compartments split further into evenly spaced parts (#1799), one entry for each split compartment. */
+  gridfinityCompartmentSplits?: GridfinityCompartmentSplit[];
   /** Gridfinity bin: how far each side switched open is opened (#455), one entry a side; missing is the whole side. */
   gridfinityOpenings?: GridfinityOpening[];
   /** Gridfinity bin: the corners of its partly open sides' notches, seen from outside the wall, rounded or chamfered; missing is rounded (#455). */
@@ -1578,6 +1627,10 @@ export type WorkplaneShape = {
   /** Port opening: extra room in mm on every side on top of the preset's, already in width and height; it lets the preset be recognised. */
   portClearance?: number;
   cornerFillet?: number;
+  /** Polygon: a flat side faces the front instead of a corner, so an octagon measures from flat to flat (Discussion #1787). */
+  polygonFlat?: boolean;
+  /** Polygon: the Roof of the shape library (#1931), three sides for good; its panel offers no side count and no flat side. */
+  polygonRoof?: boolean;
   /** Rounded box with flat top and bottom: an own radius for each corner (back left, back right, front right, front left); wins over cornerFillet. */
   cornerFillets?: [number, number, number, number];
   topBottomFillet?: number;
@@ -1610,6 +1663,11 @@ export type WorkplaneShape = {
   /** Text only (#215): the letters without their counters (the holes in O, A, e), as the usual Silhouette. */
   textSilhouette?: boolean;
   /**
+   * A layer of a name tag laid in flush (#215): every layer's top on one level, the layer under each colour set in
+   * where the colour above lies, so the tag's face is flat. See FlushLayer.
+   */
+  textFlush?: FlushLayer;
+  /**
    * Straight text only (#382): the letters are stretched to fill the box in both directions, so a
    * capital can be made lower or narrower as in Tinkercad. Without it the letters keep their
    * proportions and are fitted into the box, centred.
@@ -1637,9 +1695,15 @@ export type WorkplaneShape = {
    */
   textLetterWidth?: number;
   /**
+   * Curved text only (#1840): the line closes the circle - the letters are spread evenly over all of it, so the gap
+   * between the last and the first is the same as between the others (a date ring, a dial). Text too long for the
+   * circle gets smaller letters instead. Not for a column of upright letters (textVertical).
+   */
+  textFullCircle?: boolean;
+  /**
    * Text only (#225): the top edge of the letters rounded or chamfered by `size` mm, as a name
-   * tag's letters on top are finished. Built from the outline stepped inwards, so it works for
-   * every font and word; the edge tool takes such a text as a mesh.
+   * tag's letters on top are finished, or with `side` the bottom edge or both. Built from the
+   * outline stepped inwards, so it works for every font and word; the edge tool takes such a text as a mesh.
    */
   textEdge?: TextEdge;
   /** Text only (#215): a key ring hole, with the ear round it on the bottom layer of a name tag. Straight text only. */
@@ -1706,6 +1770,8 @@ export type WorkplaneShape = {
   vasePartOf?: string;
   /** A Swallowtail key laid out for a Gridfinity plate (its id, #1061): laying them out again replaces it. */
   gridfinityKeyOf?: string;
+  /** A clip laid out for a Gridfinity baseplate with clip notches: that plate's id, so laying them out again replaces it. */
+  gridfinityClipOf?: string;
   importedMesh?: {
     positions: number[];
     normals?: number[];
@@ -1807,6 +1873,8 @@ export type WorkplaneShape = {
    */
   formulas?: Record<string, string>;
   parameterBindings?: ParameterBindings;
+  elevationRelationship?: import("@/lib/objectRelationships").ObjectElevationRelationship;
+  positionRelationships?: import("@/lib/objectRelationships").ObjectPositionRelationships;
   /**
    * A group shows each part in its own colour, like the usual "Multicolor".
    * Left out, see groupShowsPartColors() for what a group shows.

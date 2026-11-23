@@ -7,7 +7,7 @@ import { ProjectNameField } from "@/components/workplane/ProjectNameField";
 import { FOCUS_MODE_CHANGE_EVENT, FOCUS_MODE_SHORTCUT } from "@/lib/focusMode";
 import { ShapeMenuPanel } from "@/components/workplane/ShapeMenuPanel";
 import { ShapeLibraryList } from "@/components/workplane/ShapeLibraryList";
-import { AlertTriangle, ArchiveRestore, ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Check, CircleHelp, Percent, Circle as CircleIcon, Eye, EyeOff, Hexagon as HexagonIcon, ListTree, Maximize2, Minimize2, Pentagon as PentagonIcon, Pin, PinOff, Rotate3d, Route as RouteIcon, ScanEye, Search, Sparkles, Square as SquareIcon, Star as StarIcon, Triangle as TriangleIcon, X } from "lucide-react";
+import { AlertTriangle, ArchiveRestore, ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Check, CircleHelp, Percent, Circle as CircleIcon, Eye, EyeOff, Hexagon as HexagonIcon, ListTree, Maximize2, Minimize2, Palette, Pentagon as PentagonIcon, Pin, PinOff, Rotate3d, Route as RouteIcon, ScanEye, Search, Sparkles, Square as SquareIcon, Star as StarIcon, Triangle as TriangleIcon, X } from "lucide-react";
 import { OPEN_FILE_BACKUPS_EVENT } from "@/lib/fileBackups";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
@@ -170,6 +170,9 @@ export const MODIFY_SECTIONS = [
   ["surface", "surface", "editor.section.surface", 7],
 ] as const satisfies readonly (readonly [string, string, MessageKey, number])[];
 type ModifySection = (typeof MODIFY_SECTIONS)[number][0];
+/** Library entries that open a tool on the selected body instead of adding a shape. */
+const LIBRARY_TOOL_IDS: ReadonlySet<string> = new Set(["threadInsert", "magnetPocket"]);
+
 const MODIFY_SECTION_ICONS: Record<ModifySection, ComponentType> = {
   pattern: ToolbarMirrorIcon,
   shape: ToolbarSplitIcon,
@@ -331,6 +334,7 @@ export function SecondaryToolbar({
   holePatternActive,
   onThreadInsert,
   threadInsertActive,
+  onMagnetPocket,
   canHolePattern,
   onFaceTool,
   faceToolActive,
@@ -397,6 +401,7 @@ export function SecondaryToolbar({
   onShowHidden,
   onHideOthers,
   onInvertSelection,
+  onSelectSameColor,
   onToggleHidden,
   onUngroup,
   onUndo,
@@ -529,6 +534,8 @@ export function SecondaryToolbar({
   holePatternActive: boolean;
   onThreadInsert: () => void;
   threadInsertActive: boolean;
+  /** The magnet pocket tool: the thread insert's spot and check, for a magnet's pocket (magnetPocketGeometry.ts). */
+  onMagnetPocket: () => void;
   canHolePattern: boolean;
   onFaceTool: () => void;
   faceToolActive: boolean;
@@ -608,6 +615,8 @@ export function SecondaryToolbar({
   /** Hide everything but the selection, and select what is not selected (Discussion #1472). */
   onHideOthers: () => void;
   onInvertSelection: () => void;
+  /** Select every visible part in the colour of the selected ones (Discussion #1839). */
+  onSelectSameColor: () => void;
   onToggleHidden: () => void;
   onUngroup: () => void;
   onUndo: () => void;
@@ -804,9 +813,10 @@ export function SecondaryToolbar({
     onToolbarModeChange(mode);
   };
   const addShapeFromMenu = (shape: ShapeAsset) => {
-    if (shape.id === "threadInsert") {
+    if (LIBRARY_TOOL_IDS.has(shape.id)) {
       if (canHolePattern || threadInsertActive) {
-        onThreadInsert();
+        if (shape.id === "magnetPocket") onMagnetPocket();
+        else onThreadInsert();
         closeShapesAfterPick();
       }
       return;
@@ -1106,8 +1116,8 @@ export function SecondaryToolbar({
         title={shapeAssetMenuLabel(shape).replace(/\s+/g, " ")}
         aria-label={shapeAssetMenuLabel(shape).replace(/\s+/g, " ")}
         style={{ "--shape-default-color": shapeAssetColor(shape, shapeCustomizations[shape.kind]) } as CSSProperties}
-        draggable={shape.id !== "threadInsert"}
-        disabled={shape.id === "threadInsert" && !canHolePattern && !threadInsertActive}
+        draggable={!LIBRARY_TOOL_IDS.has(shape.id)}
+        disabled={LIBRARY_TOOL_IDS.has(shape.id) && !canHolePattern && !threadInsertActive}
         onClick={() => {
           if (suppressNextShapeClickRef.current) {
             suppressNextShapeClickRef.current = false;
@@ -1157,7 +1167,7 @@ export function SecondaryToolbar({
           addShapeFromMenu(shape);
         }}
         onDragStart={(event) => {
-          if (shape.id === "threadInsert") {
+          if (LIBRARY_TOOL_IDS.has(shape.id)) {
             event.preventDefault();
             return;
           }
@@ -1335,6 +1345,7 @@ export function SecondaryToolbar({
       ),
       plain("hide-others", t("contextMenu.hideOthers"), visibilityGroup, hasSelection, onHideOthers, { icon: EyeOff }),
       plain("invert-selection", t("contextMenu.invertSelection"), t("shortcuts.group.selection"), true, onInvertSelection, { icon: ArrowLeftRight }),
+      plain("select-same-colour", t("contextMenu.selectSameColor"), t("shortcuts.group.selection"), hasSelection, onSelectSameColor, { icon: Palette }),
       plain("notes", t("visibility.notes"), visibilityGroup, noteCount > 0, onToggleNotes, { icon: notesVisible ? Eye : EyeOff, active: notesVisible }),
       plain("overhangs", t("visibility.overhangs", { angle: overhangAngle }), visibilityGroup, true, onToggleOverhangs, { icon: AlertTriangle, active: overhangsVisible }),
       plain("look-onto-workplane", t("camera.lookOntoWorkplane"), t("shortcuts.group.view"), true, () => window.dispatchEvent(new Event("layerling:look-onto-workplane")), { icon: ScanEye }),

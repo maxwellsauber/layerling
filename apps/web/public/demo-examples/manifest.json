@@ -1,5 +1,19 @@
 [
   {
+    "id": "parametric-shelf",
+    "category": "real-world",
+    "title": "Parametric desktop shelf",
+    "description": "A 160 × 65 mm desktop shelf with two supports, linked sketch planes and a filleted upper shelf.",
+    "features": [
+      "Global variables",
+      "Linked positions",
+      "Fillet replay"
+    ],
+    "tryThis": "Open Variables and edit width (120, 160 or 200 mm), depth, clearance or wall. Save each size as a design variant. Move the lower shelf in Z to see the linked parts follow.",
+    "project": "parametric-shelf.lyl",
+    "thumbnail": "parametric-shelf.png"
+  },
+  {
     "id": "control-panel",
     "category": "real-world",
     "featured": true,

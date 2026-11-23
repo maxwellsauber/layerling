@@ -9,6 +9,8 @@ import { printerPlayStart } from "@/lib/printerPlay";
 import { DEFAULT_SHELL_STACK_HEIGHT, SHELL_STACK_FOOT_CHAMFER } from "@/lib/shellStackLimits";
 import { sceneShape } from "@/lib/shapeCatalog";
 import { roundSideCount } from "@/lib/roundSideCount";
+import { screwBossSize } from "@/lib/screwBoss";
+import { screwHoleFields } from "@/lib/screwHoleSizes";
 import { canonicalizeShape, isNonSolidShape, shapeHasShapeDeform, shellRebuildEntry } from "@/lib/workplaneShapes";
 import type { WorkplaneShape } from "@/types/layerling";
 
@@ -42,6 +44,9 @@ import type { WorkplaneShape } from "@/types/layerling";
  * With magnets, the lid holds by four round magnets in the corners: a pocket for each in the body's rim and one facing
  * it in the lid's plate. A wall too thin for a pocket gets a post in that corner, from the bottom up to the rim, which
  * the lid's lip then goes round.
+ * With screws in the corners (Discussion #1938), the lid is screwed down instead: the same four places and posts, each
+ * with a hole from the rim down for a heat-set insert or for a screw driven straight into the plastic, and a hole through
+ * the lid's plate above it, countersunk for the screw's head or plain (see `cornerScrewPlan`).
  * With click bumps (#1234), small round bumps on the lip's outer face (a cap: its rim's inner face) snap into dimples cut
  * into the body's wall at the same places; how far they reach into it is a setting (#1220): less for a small box or a
  * stiff lip, more for a firmer click. A handle (#1230) is a pull tab on the plate's front edge, or a finger notch in
@@ -92,7 +97,9 @@ export type LidTopEdge = "square" | "round" | "chamfer";
 /**
  * The kind of lid; the plate's thickness, the gap per side, how deep the lip or rim reaches down and how thick its wall
  * is, in mm. With `magnets`, pockets for four round magnets of that diameter and height, with `magnetGap` of play per
- * side (a little to press them in, more to glue them). With `hinge`, a hinge along the `hingeSide` (the back unless
+ * side (a little to press them in, more to glue them). With `cornerScrews`, four screws of `cornerScrewSize` instead,
+ * into heat-set inserts or straight into the plastic (`cornerScrewFastener`), their heads countersunk in the lid or lying
+ * on it (`cornerScrewHead`). With `hinge`, a hinge along the `hingeSide` (the back unless
  * another is picked) for a pin of `hingePin` mm, `hingeGap` between its knuckles, `hingeKnuckles` of them (0: as many as
  * suit its length), and the pin printed apart with `hingePrintPin`. `hingePinPlay` is the pin's play per side in the
  * lid's holes, where it turns; in the body's it sits tight (hingePinGrip). With `hingeTeardrop` (the default) the pin's
@@ -141,6 +148,10 @@ export type LidOptions = {
   magnetDiameter: number;
   magnetHeight: number;
   magnetGap: number;
+  cornerScrews: boolean;
+  cornerScrewSize: LidCornerScrewSize;
+  cornerScrewFastener: LidCornerScrewFastener;
+  cornerScrewHead: LidCornerScrewHead;
   hinge: boolean;
   hingePin: number;
   hingeGap: number;
@@ -194,6 +205,16 @@ export type LidOptions = {
   stackTop: boolean;
 };
 
+/** The screws in the corners (Discussion #1938): metric sizes there are heat-set inserts for. */
+export const LID_CORNER_SCREW_SIZES = ["M2", "M2.5", "M3", "M4", "M5"] as const;
+export type LidCornerScrewSize = (typeof LID_CORNER_SCREW_SIZES)[number];
+/** What a corner screw holds in: a heat-set insert melted into the post, or the post's plastic itself. */
+export type LidCornerScrewFastener = "insert" | "selfTapping";
+export const LID_CORNER_SCREW_FASTENERS: readonly LidCornerScrewFastener[] = ["insert", "selfTapping"];
+/** The hole in the lid: countersunk at 90 degrees so the head lies flush, or plain for a head that lies on the lid. */
+export type LidCornerScrewHead = "countersunk" | "flat";
+export const LID_CORNER_SCREW_HEADS: readonly LidCornerScrewHead[] = ["countersunk", "flat"];
+
 export type LidLatchStyle = "clip" | "slider" | "bolt";
 export const LID_LATCH_STYLES: readonly LidLatchStyle[] = ["clip", "slider", "bolt"];
 export const MIN_LID_BOLT_DIAMETER = 5;
@@ -211,6 +232,7 @@ export const MAX_LID_LATCH_LABEL = 12;
 export const LID_TYPES: readonly LidType[] = ["plug", "cap", "both", "flat", "screw", "screwIn", "bayonet", "slide"];
 export const LID_DEFAULTS: LidOptions = {
   type: "plug", thickness: 2, gap: 0.2, depth: 4, wall: 1.6, magnets: false, magnetDiameter: 6, magnetHeight: 2, magnetGap: 0.1,
+  cornerScrews: false, cornerScrewSize: "M3", cornerScrewFastener: "insert", cornerScrewHead: "countersunk",
   hinge: false, hingePin: 1.75, hingeGap: 0.3, hingePinPlay: 0.2, hingeKnuckles: 0, hingePrintPin: false, hingeSide: "back", hingeTeardrop: true, hingeStyle: "outside", hingeEndPlugs: false,
   clickBumps: false, clickBumpHeight: 0.4, handle: "none", threadPitch: 3, threadTurns: 2, threadOffset: 0, threadStandard: "own",
   bayonetLugs: 3, bayonetDepth: 8, bayonetAxialGap: 0.3, bayonetDetent: 0.3, bayonetTurn: 0, tether: false,
@@ -252,6 +274,10 @@ const MAGNET_WALL = 1.2;
 const MAGNET_SIDES = 48;
 /** How far a pocket reaches beyond the face it opens in, so the cut leaves no sheet of no thickness. */
 const MAGNET_OVERCUT = 1;
+/** How much straight hole the lid's plate keeps below a countersink, in mm: about two layers. */
+const CORNER_SCREW_SEAT = 0.4;
+/** How much of the lid's plate is kept round a screw's head, out to the plate's edge, in mm. */
+const CORNER_SCREW_HEAD_EDGE = 0.8;
 /** The lid types a hinge goes with: a rim round the outside would hit the back wall as the lid swings open. */
 export const LID_HINGE_TYPES: readonly LidType[] = ["plug", "flat"];
 export const LID_HINGE_SIDES: readonly LidHingeSide[] = ["back", "right", "front", "left"];
@@ -279,12 +305,19 @@ export const MAX_HINGE_KNUCKLES = 15;
 export const MIN_HINGE_PIN_PLAY = 0.05;
 export const MAX_HINGE_PIN_PLAY = 0.5;
 /**
- * How much larger than a piece of filament as the pin the body's holes are, per side, in mm, whatever the play: the pin
- * sits tight in the body's part of the hinge and only the lid turns on it, so the filament does not slide out (#1220). A
- * printed hole comes out a little smaller than drawn, so this presses filament in. The same as the least play, so the
- * body's knuckles keep at least HINGE_KNUCKLE_WALL round their hole.
+ * The least that the body's holes are larger than a piece of filament as the pin, per side, in mm: the pin sits tight in
+ * the body's part of the hinge and only the lid turns on it, so the filament does not slide out (#1220). A printed hole
+ * comes out a little smaller than drawn, so this presses filament in. The same as the least play, so the body's knuckles
+ * keep at least HINGE_KNUCKLE_WALL round their hole. Usually the grip is more: HINGE_PIN_GRIP_SHARE of the play.
  */
 export const HINGE_PIN_GRIP = 0.05;
+/**
+ * The share of the pin's play the body's holes get round a piece of filament: half, so 0.1 mm per side with the 0.2 mm
+ * the play starts from. At a fixed 0.05 mm the filament went in hard or not at all on many printers with the default
+ * settings (#1220, 1.151.0); following the play, the grip grows with a printer that needs more room - the play takes the
+ * fit test's value - and with a play opened by hand, and stays tighter than the lid's holes.
+ */
+export const HINGE_PIN_GRIP_SHARE = 0.5;
 /**
  * How much larger than the pin the body's holes are, per side, in mm, when the pin is printed apart: a printed pin comes
  * out at its full diameter and the holes a little smaller than drawn, so at HINGE_PIN_GRIP it hardly ever went in (a
@@ -301,6 +334,13 @@ const HINGE_KNUCKLE_WALL = 1.6;
 const MIN_KNUCKLE_WIDTH = 3;
 /** A stacking top's flare is built up in steps this high and as wide, in mm: 45 degrees, finer than a layer. */
 const STACK_TOP_STEP = 0.1;
+/**
+ * A lip or a rim along a wall that leans (issue #1868) is cut to the body every this many mm of its reach, at most
+ * LEAN_MAX_STEPS times; a wall that leans less than LEAN_MIN mm over that reach counts as upright.
+ */
+const LEAN_STEP = 0.25;
+const LEAN_MAX_STEPS = 48;
+const LEAN_MIN = 0.02;
 /** How far the hinge stays from the ends of the straight back side, in mm (its corners may be rounded). */
 const HINGE_END_MARGIN = 0.5;
 /** How much of a knuckle a teardrop hole leaves above its point, in mm: a point that would reach closer is cut flat. */
@@ -748,6 +788,17 @@ export function normalizeLidOptions(value?: Partial<Record<keyof LidOptions, unk
   if (magnetHeight !== null) result.magnetHeight = clamp(magnetHeight, MIN_MAGNET_HEIGHT, MAX_MAGNET_HEIGHT);
   const magnetGap = finiteNumber(value?.magnetGap);
   if (magnetGap !== null) result.magnetGap = clamp(magnetGap, 0, MAX_MAGNET_GAP);
+  if (value?.cornerScrews === true || value?.cornerScrews === "true") result.cornerScrews = true;
+  // In any case, and "m3" as well as "M3".
+  const cornerScrewSize = typeof value?.cornerScrewSize === "string" ? value.cornerScrewSize.trim().toUpperCase() : "";
+  const screwSize = LID_CORNER_SCREW_SIZES.find((option) => option === cornerScrewSize);
+  if (screwSize) result.cornerScrewSize = screwSize;
+  const cornerScrewFastener = typeof value?.cornerScrewFastener === "string" ? value.cornerScrewFastener.trim().toLowerCase() : "";
+  const screwFastener = LID_CORNER_SCREW_FASTENERS.find((option) => option.toLowerCase() === cornerScrewFastener);
+  if (screwFastener) result.cornerScrewFastener = screwFastener;
+  const cornerScrewHead = typeof value?.cornerScrewHead === "string" ? value.cornerScrewHead.trim().toLowerCase() : "";
+  const screwHead = LID_CORNER_SCREW_HEADS.find((option) => option === cornerScrewHead);
+  if (screwHead) result.cornerScrewHead = screwHead;
   if (value?.hinge === true || value?.hinge === "true") result.hinge = true;
   const hingePin = finiteNumber(value?.hingePin);
   if (hingePin !== null) result.hingePin = clamp(hingePin, MIN_HINGE_PIN, MAX_HINGE_PIN);
@@ -1075,12 +1126,13 @@ export function hingeKnuckleRadius(options: Pick<LidOptions, "hingePin"> & Parti
 }
 
 /**
- * How much larger than the pin the body's holes are, per side, in mm: HINGE_PIN_GRIP for a piece of filament,
- * HINGE_PRINTED_PIN_GRIP for a pin printed apart. Never more than the pin's play, so the body's holes are never looser
- * than the lid's and its knuckles keep at least HINGE_KNUCKLE_WALL round them.
+ * How much larger than the pin the body's holes are, per side, in mm: for a piece of filament HINGE_PIN_GRIP_SHARE of
+ * the pin's play, at least HINGE_PIN_GRIP; HINGE_PRINTED_PIN_GRIP for a pin printed apart. Never more than the pin's
+ * play, so the body's holes are never looser than the lid's and its knuckles keep at least HINGE_KNUCKLE_WALL round them.
  */
 export function hingePinGrip(options: Pick<LidOptions, "hingePinPlay"> & Partial<Pick<LidOptions, "hingePrintPin">>) {
-  return options.hingePrintPin ? Math.min(HINGE_PRINTED_PIN_GRIP, options.hingePinPlay) : HINGE_PIN_GRIP;
+  const grip = options.hingePrintPin ? HINGE_PRINTED_PIN_GRIP : Math.max(HINGE_PIN_GRIP, HINGE_PIN_GRIP_SHARE * options.hingePinPlay);
+  return Math.min(grip, options.hingePinPlay);
 }
 
 /**
@@ -1485,7 +1537,38 @@ export function lidThicknessForMagnets(options: Pick<LidOptions, "magnetHeight">
   return Math.ceil((magnetPocketDepth(options) + MAGNET_SKIN) * 10 - 1e-6) / 10;
 }
 
+/**
+ * The screws in the corners as the lid makes them, in mm (Discussion #1938). In the body: a hole `hole` wide and `depth`
+ * deep from the rim down, with `wall` round it at least - for a heat-set insert the hole its sheet gives, a millimetre
+ * deeper than the insert so the plastic it pushes aside has room; for a screw driven into the plastic a pilot hole of
+ * 0.8 times the screw, 2.5 screws deep, as the screw boss has them (screwBoss.ts). In the lid: a clearance hole `shaft`
+ * wide (ISO 273, medium) under a head `head` wide, countersunk at 90 degrees `sink` deep (ISO 15065; 0 for a plain hole).
+ */
+export type LidCornerScrews = { hole: number; depth: number; wall: number; shaft: number; head: number; sink: number };
+
+export function cornerScrewPlan(options: Pick<LidOptions, "cornerScrewSize" | "cornerScrewFastener" | "cornerScrewHead">): LidCornerScrews {
+  const tenth = (value: number) => Math.round(value * 10) / 10;
+  const fields = screwHoleFields("countersink", options.cornerScrewSize, 0);
+  const shaft = fields.screwHoleShaft;
+  const head = fields.width;
+  const sink = options.cornerScrewHead === "countersunk" ? (head - shaft) / 2 : 0;
+  if (options.cornerScrewFastener === "insert") {
+    const insert = screwBossSize("insert", options.cornerScrewSize);
+    return { hole: insert.hole, depth: tenth(insert.length + 1), wall: insert.minWall, shaft, head, sink };
+  }
+  const diameter = Number(options.cornerScrewSize.slice(1));
+  return { hole: tenth(0.8 * diameter), depth: tenth(2.5 * diameter), wall: tenth(0.6 * diameter), shaft, head, sink };
+}
+
+/** The thinnest plate that holds a corner screw's head: its countersink with some straight hole below (to a tenth, up). */
+export function lidThicknessForCornerScrews(options: Pick<LidOptions, "cornerScrewSize" | "cornerScrewFastener" | "cornerScrewHead">) {
+  const { sink } = cornerScrewPlan(options);
+  return sink > 0 ? Math.ceil((sink + CORNER_SCREW_SEAT) * 10 - 1e-6) / 10 : MIN_LID_THICKNESS;
+}
+
 export type LidError =
+  | { code: "cornerScrewsNoRoom" | "cornerScrewsMagnets" | "cornerScrewsHinge" }
+  | { code: "cornerScrewsThinLid"; thickness: number }
   | { code: "notClosed" | "notOpen" | "rimNotLevel" | "tooSmall" | "tooShallow" | "empty" | "magnetsNoRoom" | "hingeLidType" | "hingeNoBack" | "hingeTooLow" | "hingeStyleStraight" | "hingeStyleMagnets" | "pivotNoSides" }
   | { code: "endPlugsFlush" | "endPlugsShort" }
   | { code: "stackTopType" | "stackTopExtras" }
@@ -3082,7 +3165,11 @@ export type LidLatch = {
   boltLabels?: { point: [number, number, number]; normal: [number, number, number]; height: number }[];
 };
 
-export type LidResult = { lid: ManifoldSolid; magnets?: LidMagnets; hinge?: LidHinge; latch?: LidLatch; clickBumps?: LidClickBumps; handle?: LidHandleResult; screw?: LidScrew; bayonet?: LidBayonet; slide?: LidSlide; tether?: LidTether; flipTop?: LidFlipTop } | { error: LidError };
+/**
+ * `leaning` says that the lip or the rim follows a wall that leans (`leaningWalls` in `lidForSolid`): the exact lid, which
+ * is upright, must not take this one's place.
+ */
+export type LidResult = { lid: ManifoldSolid; leaning?: boolean; magnets?: LidMagnets; cornerScrews?: LidCornerScrews; hinge?: LidHinge; latch?: LidLatch; clickBumps?: LidClickBumps; handle?: LidHandleResult; screw?: LidScrew; bayonet?: LidBayonet; slide?: LidSlide; tether?: LidTether; flipTop?: LidFlipTop } | { error: LidError };
 
 /** Where a lid cuts the body to find its top: just below the rim, so a rim that is a hair uneven still counts as the top. */
 function lidRimHeight(top: number, height: number) {
@@ -3111,7 +3198,9 @@ export function lidTopRound(runtime: ManifoldToplevel, body: ManifoldSolid): { o
 /**
  * The lid for `body` (in the scene's frame, y up), lying turned over beside it: its plate on the workplane at the
  * height of the body's bottom, the lip or rim pointing up. With magnets, also the pockets the body needs, and the posts
- * for the corners where its wall is too thin to hold one (both in the scene's frame, where the body stands). A screw
+ * for the corners where its wall is too thin to hold one (both in the scene's frame, where the body stands). With screws
+ * in the corners, the same as `magnets` - the pockets are then the holes for the inserts or screws - and their measures
+ * as `cornerScrews`. A screw
  * lid comes with the thread for the body, standing where it goes (a screw-in lid's in the body's opening), a bayonet lid with its lugs, a slide-in lid with the grooves and the cut wall to take out of the body; with a tether, also its
  * bead for the body, and the tether lying beside the cap.
  */
@@ -3141,9 +3230,13 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
     // A screw lid's rim and a screw-in lid's plug reach down as far as their thread does, a bayonet's by its own depth, not by `depth`; a slide-in lid has neither lip nor rim.
     if (options.type !== "flat" && options.type !== "screw" && options.type !== "screwIn" && options.type !== "bayonet" && options.type !== "slide" && options.depth >= height) return { error: { code: "tooShallow" } };
     // A screw lid holds by its thread alone, screwed on or in, and a bayonet lid by its lugs, all turned to close.
-    if (!lidTakesExtras(options) && (options.magnets || options.hinge || options.clickBumps || options.handle !== "none")) return { error: { code: options.type === "bayonet" ? "bayonetExtras" : "screwExtras" } };
+    if (!lidTakesExtras(options) && (options.magnets || options.cornerScrews || options.hinge || options.clickBumps || options.handle !== "none")) return { error: { code: options.type === "bayonet" ? "bayonetExtras" : "screwExtras" } };
     // A slide-in lid holds in its grooves and slides out: no rim under its plate for magnets, nor a side to hinge on.
-    if (!lidTakesMagnets(options) && lidTakesExtras(options) && (options.magnets || options.hinge)) return { error: { code: "slideExtras" } };
+    if (!lidTakesMagnets(options) && lidTakesExtras(options) && (options.magnets || options.cornerScrews || options.hinge)) return { error: { code: "slideExtras" } };
+    // Screws go where the magnets would: the corners hold one or the other.
+    if (options.cornerScrews && options.magnets) return { error: { code: "cornerScrewsMagnets" } };
+    // Four screws hold the lid down all round: it does not swing open on a hinge.
+    if (options.cornerScrews && options.hinge) return { error: { code: "cornerScrewsHinge" } };
     // A tether keeps a cap that is turned off the body.
     if (options.tether && !lidTetherFits(options)) return { error: { code: "tetherType" } };
     // A flip-top's flap opens in a cap that stays on.
@@ -3164,7 +3257,7 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
     // lid is as tall as the knuckles need for a 45 degree slope from its back face, so they print without support.
     const stackTop = options.stackTop;
     if (stackTop && (!lidStackTopFits(options) || !hasOpening || (options.hinge && options.hingeStyle !== "outside"))) return { error: { code: "stackTopType" } };
-    if (stackTop && (options.magnets || options.clickBumps || options.handle !== "none" || options.tether || options.flipTop)) return { error: { code: "stackTopExtras" } };
+    if (stackTop && (options.magnets || options.cornerScrews || options.clickBumps || options.handle !== "none" || options.tether || options.flipTop)) return { error: { code: "stackTopExtras" } };
     // A slider's nose hangs from the lid's plate as it prints turned over; a stacking lid prints upright.
     if (stackTop && options.latches > 0 && options.latchStyle !== "clip") return { error: { code: "sliderStackTop" } };
     // The tray's rim stands on the cap's top edge, so that stays square.
@@ -3214,18 +3307,23 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
     if (pivot && "error" in pivot) return { error: pivot.error };
 
     // The magnets: a pocket in each corner with a wall round it, and a post where the body's wall cannot hold that.
-    const pocketRadius = options.magnetDiameter / 2 + options.magnetGap;
-    const pocketDepth = magnetPocketDepth(options);
+    // Screws in the corners (Discussion #1938) go the same way: the pocket is the hole for the insert or the screw, the
+    // wall round it what holds that, and at least as wide as the screw's head in the lid above needs.
+    const screws = options.cornerScrews ? cornerScrewPlan(options) : null;
+    const pocketRadius = screws ? screws.hole / 2 : options.magnetDiameter / 2 + options.magnetGap;
+    const pocketDepth = screws ? screws.depth : magnetPocketDepth(options);
     let magnetCentres: Point[] = [];
     let posts: ManifoldSolid | null = null;
     let postParts: MagnetPostPart[] = [];
-    if (options.magnets) {
-      if (options.thickness < lidThicknessForMagnets(options) - 1e-9) return { error: { code: "magnetsThinLid", thickness: lidThicknessForMagnets(options) } };
-      if (height < pocketDepth + MAGNET_WALL) return { error: { code: "magnetsNoRoom" } };
-      const reach = pocketRadius + MAGNET_WALL;
+    if (options.magnets || screws) {
+      if (screws && options.thickness < lidThicknessForCornerScrews(options) - 1e-9) return { error: { code: "cornerScrewsThinLid", thickness: lidThicknessForCornerScrews(options) } };
+      if (!screws && options.thickness < lidThicknessForMagnets(options) - 1e-9) return { error: { code: "magnetsThinLid", thickness: lidThicknessForMagnets(options) } };
+      const noRoom = screws ? "cornerScrewsNoRoom" as const : "magnetsNoRoom" as const;
+      if (height < pocketDepth + MAGNET_WALL) return { error: { code: noRoom } };
+      const reach = screws ? Math.max(pocketRadius + screws.wall, screws.head / 2 + CORNER_SCREW_HEAD_EDGE) : pocketRadius + MAGNET_WALL;
       const polygons = outline.toPolygons() as Point[][];
-      const places = magnetPlaces(polygons, reach, 2 * pocketRadius + MAGNET_WALL);
-      if (!places) return { error: { code: "magnetsNoRoom" } };
+      const places = magnetPlaces(polygons, reach, screws ? 2 * reach : 2 * pocketRadius + MAGNET_WALL);
+      if (!places) return { error: { code: noRoom } };
       magnetCentres = places.map(({ centre }) => centre);
       // Each post is the round wall of its pocket and the square from it to the corner, square to the box round the
       // body: a cylinder and a box, exact for the kernel, as long as they stay within the body.
@@ -3305,6 +3403,60 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
       const around = filled(runtime, cut, created);
       return { outline: around.toPolygons() as Point[][], opening: keep(created, around.subtract(cut)).toPolygons() as Point[][] };
     };
+    /**
+     * Where the body's walls lean within the lip's or the rim's reach (issue #1868): a pot that narrows towards its foot, a
+     * tapered capsule. Cut every LEAN_STEP from the rim down to `depth` below the top, and at the height of the click
+     * bumps: `free` is what of the opening is open at that height and at every one above it, so what goes down into it
+     * from above; `clear` the outline with all those above it, what a rim must go round on its way down. `open` and
+     * `outline` are the opening and the outline at that height alone. `lip` says that the opening narrows by more than
+     * LEAN_MIN on the way down, `rim` that the outline widens by as much; null where neither does, and the lip and the rim
+     * are upright as before. An opening that widens below the rim leaves the lip upright: one that followed it could
+     * not be pushed in.
+     */
+    const leaningWalls = () => {
+      const low = top - options.depth;
+      const steps = Math.max(1, Math.min(LEAN_MAX_STEPS, Math.ceil((rim - low) / LEAN_STEP)));
+      const heights = Array.from({ length: steps }, (_, index) => rim - ((rim - low) * (index + 1)) / steps);
+      const middle = top - options.depth / 2;
+      if (middle < rim - 1e-6 && heights.every((z) => Math.abs(z - middle) > 1e-6)) heights.push(middle);
+      heights.sort((a, b) => b - a);
+      const levels = [{ z: rim, free: opening, clear: outline, open: opening, outline }];
+      for (const z of heights) {
+        const cut = keep(created, up.slice(z));
+        const around = filled(runtime, cut, created);
+        const open = keep(created, around.subtract(cut));
+        const above = levels[levels.length - 1];
+        levels.push({ z, free: keep(created, above.free.intersect(open)), clear: keep(created, above.clear.add(around)), open, outline: around });
+      }
+      const lowest = levels[levels.length - 1];
+      // Only what this lid has counts: a plug has no rim, a cap no lip.
+      const lip = options.type !== "cap" && hasOpening && keep(created, opening.subtract(keep(created, lowest.free.offset(LEAN_MIN, "Round", 2, 48)))).area() > 1e-3;
+      const rimLeans = options.type !== "plug" && keep(created, lowest.clear.subtract(keep(created, outline.offset(LEAN_MIN, "Round", 2, 48)))).area() > 1e-3;
+      return lip || rimLeans ? { levels, lip, rim: rimLeans } : null;
+    };
+    let lean: ReturnType<typeof leaningWalls> = null;
+    /**
+     * A solid through `sections`, from the rim down (`leaningWalls`), and upright from the rim to the top: between two
+     * heights the hull of the two sections where both are convex, so a leaning wall comes out flat; otherwise the lower
+     * one, in steps as fine as the heights are apart. It ends where a section is too small to count. As a `hole`, to cut
+     * out of such a solid, it reaches below the lowest height as well. Null where there is nothing at the rim.
+     */
+    const lofted = (sections: { z: number; area: CrossSection }[], hole: boolean) => {
+      if (sections[0].area.area() < MIN_OPENING_AREA) return null;
+      const pieces: ManifoldSolid[] = [prism(sections[0].area, sections[0].z, top)];
+      let reached = sections[0];
+      for (let index = 1; index < sections.length; index += 1) {
+        const upper = sections[index - 1];
+        const lower = sections[index];
+        if (lower.area.area() < MIN_OPENING_AREA) break;
+        pieces.push(convex(lower.area) && convex(upper.area)
+          ? keep(created, runtime.Manifold.hull([prism(lower.area, lower.z, lower.z + 0.001), prism(upper.area, upper.z - 0.001, upper.z)]))
+          : prism(lower.area, lower.z, upper.z));
+        reached = lower;
+      }
+      if (hole && reached === sections[sections.length - 1]) pieces.push(prism(reached.area, reached.z - 1, reached.z + 0.001));
+      return keep(created, runtime.Manifold.union(pieces));
+    };
     if (options.type === "screw") {
       const plan = screwPlan(sliceAt, options, top, box.min[2], rim);
       if ("error" in plan) return { error: plan.error };
@@ -3350,14 +3502,29 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
       parts.push(prism(keep(created, outline.subtract(opening)), top + flareHeight + options.thickness - 0.01, lidTop));
     } else {
       parts.push(prism(options.type === "plug" ? outline : outer, top, top + options.thickness));
+      lean = leaningWalls();
       if (options.type !== "cap") {
         const lip = keep(created, opening.offset(-options.gap, "Round", 2, 48));
         if (lip.area() < MIN_OPENING_AREA) return { error: { code: "tooSmall" } };
-        const inside = keep(created, opening.offset(-(options.gap + options.wall), "Round", 2, 48));
-        const ring = inside.area() >= MIN_OPENING_AREA ? keep(created, lip.subtract(inside)) : lip;
-        parts.push(prism(ring, top - options.depth, top));
+        if (lean?.lip) {
+          // The opening narrows below the rim: the lip follows it, the gap from the wall at every height.
+          const hollow = lofted(lean.levels.map(({ z, free }) => ({ z, area: keep(created, free.offset(-(options.gap + options.wall), "Round", 2, 48)) })), true);
+          const whole = lofted(lean.levels.map(({ z, free }) => ({ z, area: keep(created, free.offset(-options.gap, "Round", 2, 48)) })), false);
+          if (!whole) return { error: { code: "tooSmall" } };
+          parts.push(hollow ? keep(created, whole.subtract(hollow)) : whole);
+        } else {
+          const inside = keep(created, opening.offset(-(options.gap + options.wall), "Round", 2, 48));
+          const ring = inside.area() >= MIN_OPENING_AREA ? keep(created, lip.subtract(inside)) : lip;
+          parts.push(prism(ring, top - options.depth, top));
+        }
       }
-      if (options.type !== "plug") parts.push(prism(keep(created, outer.subtract(inner)), top - options.depth, top));
+      if (options.type !== "plug") {
+        const around = lean?.rim ? lofted(lean.levels.map(({ z, clear }) => ({ z, area: keep(created, clear.offset(options.gap + options.wall, "Round", 2, 48)) })), false) : null;
+        const room = lean?.rim ? lofted(lean.levels.map(({ z, clear }) => ({ z, area: keep(created, clear.offset(options.gap, "Round", 2, 48)) })), true) : null;
+        // The body widens below the rim: the cap's rim follows it, the gap from the wall at every height.
+        if (around && room) parts.push(keep(created, around.subtract(room)));
+        else parts.push(prism(keep(created, outer.subtract(inner)), top - options.depth, top));
+      }
     }
     // A tether: the collar and the bead its ring sits between are joined to the cap; the bead for the body comes with it.
     let tether: { plan: TetherPlan; bead: ManifoldSolid; part: ManifoldSolid } | null = null;
@@ -3502,8 +3669,8 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
         // standing on a corner so its top is a point at 45 degrees, as the teardrop's (which lies within it), and it prints
         // without droop; its corners are cut flat where they would leave less than TEARDROP_WALL of the knuckle, as the
         // teardrop's point is. The body's square is as tight round the pin as its round holes, so the pin goes in through it
-        // before the plugs; each plug is that square HINGE_PIN_GRIP smaller all round (as thick as a piece of filament, a
-        // little thicker for a printed pin's roomier hole), so it sits tight and cannot turn, and its outer end is cut to the
+        // before the plugs; each plug is that square HINGE_PIN_GRIP smaller all round (a little thicker than a piece of
+        // filament, more so for a printed pin's roomier hole), so it sits tight and cannot turn, and its outer end is cut to the
         // body's outline, flush with it.
         const squareAlong = (from: number, to: number, half: number, corner: number) => {
           const square = keep(created, keep(created, runtime.CrossSection.square([2 * half, 2 * half], true)).rotate(45));
@@ -3910,7 +4077,17 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
     // wall. Where the wall is too thin for that, bump and dimple stop short, the bump that play short of the dimple.
     let dimples: ManifoldSolid | null = null;
     let bumpCount = 0;
+    // Along a wall that leans (`leaningWalls`), the bumps stand on the lip or the rim as it is at their height, and the
+    // dimples go into the wall as it is there: the opening and the outline cut at that height, not at the rim.
+    const bumpLevel = lean?.levels.find(({ z }) => z <= top - options.depth / 2 + 1e-6) ?? null;
+    const atBumps = {
+      opening: bumpLevel ? (options.type !== "cap" && lean?.lip ? bumpLevel.free : bumpLevel.open) : opening,
+      outline: bumpLevel ? bumpLevel.outline : outline,
+      inner: bumpLevel && lean?.rim ? keep(created, bumpLevel.clear.offset(options.gap, "Round", 2, 48)) : inner,
+      outer: bumpLevel && lean?.rim ? keep(created, bumpLevel.clear.offset(options.gap + options.wall, "Round", 2, 48)) : outer,
+    };
     if (options.clickBumps && !slide) {
+      const { opening, outline, inner, outer } = atBumps;
       const onLip = options.type !== "cap";
       const middle = top - options.depth / 2;
       const reach = options.clickBumpHeight;
@@ -3961,8 +4138,21 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
       made = keep(created, made.add(bumps));
       bumpCount = centres.length;
     }
+    // A screw goes through the lid's plate: a clearance hole over each hole in the body, and for a countersunk head a cone
+    // opening to the plate's top face, where the head then lies flush.
+    if (magnetCentres.length && screws) {
+      const plateTop = top + options.thickness;
+      const holes = magnetCentres.flatMap(([x, y]) => [
+        keep(created, keep(created, runtime.Manifold.cylinder(options.thickness + 2 * MAGNET_OVERCUT, screws.shaft / 2, screws.shaft / 2, MAGNET_SIDES)).translate([x, y, top - MAGNET_OVERCUT])),
+        ...(screws.sink > 0 ? [
+          keep(created, keep(created, runtime.Manifold.cylinder(screws.sink, screws.shaft / 2, screws.head / 2, MAGNET_SIDES)).translate([x, y, plateTop - screws.sink])),
+          keep(created, keep(created, runtime.Manifold.cylinder(MAGNET_OVERCUT, screws.head / 2, screws.head / 2, MAGNET_SIDES)).translate([x, y, plateTop])),
+        ] : []),
+      ]);
+      made = keep(created, made.subtract(keep(created, runtime.Manifold.union(holes))));
+    }
     // The lid's pockets face the body's: they open in the plate's underside, where it lies on the rim.
-    if (magnetCentres.length) {
+    if (magnetCentres.length && !screws) {
       const pockets = magnetCentres.map(([x, y]) => keep(created, keep(created, runtime.Manifold.cylinder(pocketDepth + MAGNET_OVERCUT, pocketRadius, pocketRadius, MAGNET_SIDES)).translate([x, y, top - MAGNET_OVERCUT])));
       made = keep(created, made.subtract(keep(created, runtime.Manifold.union(pockets))));
     }
@@ -4139,8 +4329,8 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
       handed.add(cuts);
       slideResult = { cuts, side: options.slideSide, depth: slide.plan.depth, wall: slide.plan.wall, bumps: slide.bumps, frame: slide.plan.frame };
     }
-    const extras = { ...(hinge ? { hinge } : {}), ...(latch ? { latch } : {}), ...(clickBumps ? { clickBumps } : {}), ...(handle ? { handle } : {}), ...(screwResult ? { screw: screwResult } : {}), ...(bayonetResult ? { bayonet: bayonetResult } : {}), ...(slideResult ? { slide: slideResult } : {}), ...(tetherResult ? { tether: tetherResult } : {}), ...(flipTopResult ? { flipTop: flipTopResult } : {}) };
-    if (!options.magnets) return { lid, ...extras };
+    const extras = { ...(hinge ? { hinge } : {}), ...(latch ? { latch } : {}), ...(clickBumps ? { clickBumps } : {}), ...(handle ? { handle } : {}), ...(screwResult ? { screw: screwResult } : {}), ...(bayonetResult ? { bayonet: bayonetResult } : {}), ...(slideResult ? { slide: slideResult } : {}), ...(tetherResult ? { tether: tetherResult } : {}), ...(flipTopResult ? { flipTop: flipTopResult } : {}), ...(lean ? { leaning: true } : {}) };
+    if (!options.magnets && !screws) return { lid, ...extras };
     handed.add(posts);
     // Back in the scene's frame: up is y, and the frame's y is the scene's z turned round.
     const pockets = magnetCentres.map(([x, y]): MagnetPocket => ({
@@ -4150,7 +4340,7 @@ export function lidForSolid(runtime: ManifoldToplevel, body: ManifoldSolid, give
       height: pocketDepth + MAGNET_OVERCUT,
       diameter: 2 * pocketRadius,
     }));
-    return { lid, magnets: { posts, postParts, pockets }, ...extras };
+    return { lid, magnets: { posts, postParts, pockets }, ...(screws ? { cornerScrews: screws } : {}), ...extras };
   } catch (error) {
     return { error: { code: "kernel", message: error instanceof Error ? error.message : String(error ?? "") } };
   } finally {
@@ -4177,6 +4367,14 @@ export function lidErrorMessage(error: LidError) {
       return t("lid.error.empty");
     case "magnetsNoRoom":
       return t("lid.error.magnetsNoRoom");
+    case "cornerScrewsNoRoom":
+      return t("lid.error.cornerScrewsNoRoom");
+    case "cornerScrewsMagnets":
+      return t("lid.error.cornerScrewsMagnets");
+    case "cornerScrewsHinge":
+      return t("lid.error.cornerScrewsHinge");
+    case "cornerScrewsThinLid":
+      return t("lid.error.cornerScrewsThinLid", { thickness: error.thickness.toLocaleString(numberLocale()) });
     case "magnetsThinLid":
       return t("lid.error.magnetsThinLid", { thickness: error.thickness.toLocaleString(numberLocale()) });
     case "hingeLidType":
@@ -4307,9 +4505,10 @@ function positionsOf(mesh: ReturnType<ManifoldSolid["getMesh"]>) {
 
 /**
  * With magnets, what the body needs as well: the posts for its corners, if any (cylinders and boxes, or one mesh where
- * those would not fit) and the pockets (hole cylinders).
+ * those would not fit) and the pockets (hole cylinders). With screws in the corners (`cornerScrews`), the pockets are the
+ * holes for the inserts or the screws.
  */
-export type LidShapeMagnets = { posts: WorkplaneShape[]; pockets: WorkplaneShape[] };
+export type LidShapeMagnets = { posts: WorkplaneShape[]; pockets: WorkplaneShape[]; cornerScrews?: LidCornerScrews };
 
 /**
  * With a hinge, the body's knuckles (grouped with it, as the posts are) and the pin printed apart, if asked for; with end
@@ -4349,7 +4548,7 @@ export type LidShapeTether = { part: WorkplaneShape; bead: WorkplaneShape; strap
 /** With latches, the body's cheeks and pins (grouped with it), the clips (a body of their own beside the lid) and how many. */
 export type LidShapeLatch = { body: WorkplaneShape; clips: WorkplaneShape; count: number; width: number; pin: number; style?: LidLatchStyle; travel?: number; labels?: { point: [number, number, number]; width: number; height: number }[]; boltLabels?: { point: [number, number, number]; normal: [number, number, number]; height: number }[] };
 
-export type LidShapeResult = { lid: WorkplaneShape; magnets?: LidShapeMagnets; hinge?: LidShapeHinge; latch?: LidShapeLatch; clickBumps?: LidShapeClickBumps; handle?: LidShapeHandle; screw?: LidShapeScrew; bayonet?: LidShapeBayonet; slide?: LidShapeSlide; tether?: LidShapeTether; flipTop?: LidFlipTop } | { lid: null; error: string };
+export type LidShapeResult = { lid: WorkplaneShape; leaning?: boolean; magnets?: LidShapeMagnets; hinge?: LidShapeHinge; latch?: LidShapeLatch; clickBumps?: LidShapeClickBumps; handle?: LidShapeHandle; screw?: LidShapeScrew; bayonet?: LidShapeBayonet; slide?: LidShapeSlide; tether?: LidShapeTether; flipTop?: LidFlipTop } | { lid: null; error: string };
 
 /**
  * The body a lid is made for, in the kernel: the solids among `targets` joined and the holes among them cut away. Null
@@ -4500,9 +4699,10 @@ export async function lidForShapes(targets: readonly WorkplaneShape[], given: Li
       const { side, depth, wall, bumps, frame } = result.slide;
       slide = { cuts, side, depth, wall, bumps, frame };
     }
-    const extras = { ...(hinge ? { hinge } : {}), ...(latch ? { latch } : {}), ...(clickBumps ? { clickBumps } : {}), ...(handle ? { handle } : {}), ...(screw ? { screw } : {}), ...(bayonet ? { bayonet } : {}), ...(slide ? { slide } : {}), ...(tether ? { tether } : {}), ...(result.flipTop ? { flipTop: result.flipTop } : {}) };
+    const extras = { ...(hinge ? { hinge } : {}), ...(latch ? { latch } : {}), ...(clickBumps ? { clickBumps } : {}), ...(handle ? { handle } : {}), ...(screw ? { screw } : {}), ...(bayonet ? { bayonet } : {}), ...(slide ? { slide } : {}), ...(tether ? { tether } : {}), ...(result.flipTop ? { flipTop: result.flipTop } : {}), ...(result.leaning ? { leaning: true } : {}) };
     if (!result.magnets) return { lid, ...extras };
-    const postName = t("lid.magnetPosts", { name: source.name });
+    const screws = result.cornerScrews;
+    const postName = t(screws ? "lid.cornerScrewPosts" : "lid.magnetPosts", { name: source.name });
     const meshPost = result.magnets.posts
       ? splitShapeFromWorldPositions(source, positionsOf(result.magnets.posts.getMesh()), createLocalId(`${source.id}-magnet-posts`), postName)
       : null;
@@ -4524,7 +4724,7 @@ export async function lidForShapes(targets: readonly WorkplaneShape[], given: Li
       }));
     const pockets = result.magnets.pockets.map((pocket, index) => sceneShape({
       id: createLocalId(`${source.id}-magnet`),
-      name: t("lid.magnetPocket", { number: index + 1 }),
+      name: t(screws ? "lid.cornerScrewHole" : "lid.magnetPocket", { number: index + 1 }),
       kind: "cylinder",
       color: source.color,
       hole: true,
@@ -4536,7 +4736,7 @@ export async function lidForShapes(targets: readonly WorkplaneShape[], given: Li
       height: pocket.height,
       sides: MAGNET_SIDES,
     }));
-    return { lid, magnets: { posts, pockets }, ...extras };
+    return { lid, magnets: { posts, pockets, ...(screws ? { cornerScrews: screws } : {}) }, ...extras };
   } catch (error) {
     return { lid: null, error: lidErrorMessage({ code: "kernel", message: error instanceof Error ? error.message : String(error ?? "") }) };
   } finally {

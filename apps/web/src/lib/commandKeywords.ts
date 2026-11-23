@@ -17,6 +17,7 @@ export const COMMAND_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   "toggle-hidden": ["hide", "show", "visible", "ausblenden", "einblenden", "verstecken", "sichtbar"],
   "show-hidden": ["show all", "unhide", "alles zeigen", "alles einblenden", "versteckte"],
   "hide-others": ["hide others", "hide unselected", "isolate", "focus", "only selected", "andere ausblenden", "isolieren", "nur auswahl", "rest ausblenden"],
+  "select-same-colour": ["same colour", "same color", "select by colour", "select by color", "colour", "color", "gleiche farbe", "nach farbe", "farbe auswählen", "farbe"],
   "invert-selection": ["invert", "inverse", "reverse selection", "select others", "auswahl umkehren", "umkehren", "invertieren", "andere auswählen"],
   notes: ["notes", "points", "notizen", "punkte", "bezugspunkte"],
   overhangs: ["overhang", "ueberhang", "überhang", "ueberhaenge", "überhänge", "support", "stuetze"],
@@ -94,6 +95,7 @@ export const COMMAND_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
 /** The words of a shape, beyond its name: what people call it elsewhere. */
 export const SHAPE_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   threadInsert: ["thread insert", "threaded insert", "heat set", "heat-set", "heat set insert", "brass insert", "insert nut", "screw insert", "m3 insert", "hole for insert", "gewindeeinsatz", "gewindeeinsätze", "gewindebuchse", "einpressmutter", "einschmelzmutter", "messingeinsatz", "schraubeneinsatz", "bohrung für einsatz"],
+  magnetPocket: ["magnet", "magnets", "magnet pocket", "magnet hole", "neodymium", "top hat", "glue well", "joint magnet", "magnetic joint", "magnete", "magnettasche", "magnetloch", "zylinderhut", "aimant", "imán", "magneet", "magnes", "магнит", "磁铁", "磁鐵"],
   box: ["cube", "block", "quader", "wuerfel", "würfel", "rechteck"],
   roundedBox: ["rounded cube", "abgerundet", "rounded box", "rundquader"],
   cylinder: ["tube", "pipe", "rod", "zylinder", "rohr", "stab", "walze", "drill point", "drilled hole", "blind hole", "bohrerspitze", "bohrspitze", "bohrung", "sackloch"],
@@ -124,6 +126,7 @@ export const SHAPE_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   torus: ["ring", "donut", "o-ring", "oring"],
   wedge: ["ramp", "keil", "rampe", "schraege", "schräge", "triangle", "right triangle", "dreieck", "rechtwinklig"],
   polygon: ["triangle", "roof", "hexagon", "dreieck", "dach", "sechskant", "vieleck", "mehrkant"],
+  roof: ["roof", "dach", "triangle", "dreieck", "gable", "giebel", "satteldach", "prism", "prisma", "toit", "tejado"],
   "round-roof": ["roof", "dach", "arch", "toit rond", "dachrund", "halbzylinder"],
   pyramid: ["pyramide", "triangle", "dreieck"],
   slot: ["capsule", "kapsel", "langloch", "oblong"],
@@ -175,4 +178,12 @@ export const COMMAND_SHORTCUTS: Readonly<Record<string, string>> = {
   "sketch-delete": "Delete",
   "sketch-undo": "Ctrl+Z",
   "sketch-redo": "Ctrl+Y",
+  carry: "C",
+  "sketch-image": "Ctrl+I",
+  // The sketch's drawing tools by number (SKETCH_TOOL_KEYS in SketchWorkspace.tsx).
+  "sketch-line": "1",
+  "sketch-bezier": "2",
+  "sketch-smooth": "3",
+  "sketch-refine": "4",
+  "sketch-freehand": "5",
 };

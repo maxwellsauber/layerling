@@ -1,9 +1,11 @@
+import {validateElevationRelationship,validatePositionRelationships,resolveObjectRelationships} from "@/lib/objectRelationships";
 import { validateProjectVariables, validateVariableExpression, resolveProjectVariables, evaluateVariableExpression, PARAMETER_FIELDS } from "@/lib/projectVariables";
 import type { ProjectVariable } from "@/lib/projectVariables";
 import { normalizeLoftSvgProfile } from "@/lib/loftSvgGeometry";
 import type { SketchProfile } from "@/types/layerling";
 import { updateSketchOffsets } from "@/lib/sketchOffsets";
 import { checkedTypefaceData, customFontName, isCustomFontId, textCharacters, typefaceSubset } from "@/lib/customFonts";
+import { normalizeFlushLayer } from "@/lib/flushLayers";
 import { customFontEntry, registerCustomFont } from "@/lib/textFonts";
 import { strFromU8, strToU8, unzip } from "fflate";
 import { boundedProjectZip } from "@/lib/boundedProjectZip";
@@ -13,7 +15,7 @@ import { importedShapeFromObj } from "@/lib/objImport";
 import { normalizeProjectAsset, sha256Hex } from "@/lib/projectAssets";
 import { canonicalizeShape } from "@/lib/workplaneShapes";
 import { normalizeSketchStroke, SKETCH_STROKE_JOINS } from "@/lib/sketchStroke";
-import { normalizeTextEdge } from "@/lib/textEdge";
+import { isTextEdgeSide, normalizeTextEdge } from "@/lib/textEdge";
 import { isTextKeyring } from "@/lib/textGeometry";
 import { normalizeNotes } from "@/lib/workplaneNotes";
 import {
@@ -29,6 +31,7 @@ import { importedShapeFromStl, stlReadBeforeZUp, type StlReadOptions } from "@/l
 import { importedShapeFromSvg } from "@/lib/svgImport";
 import { importedShapeFrom3mf } from "@/lib/threemfImport";
 import { normalizeDesignView, normalizeSavedViews, readDesignView, readSavedViews, type DesignView, type SavedDesignViews } from "@/lib/designView";
+import { normalizeDesignDrawingInfo, readDesignDrawingInfo, type DesignDrawingInfo } from "@/lib/drawingInfo";
 import { normalizeSavedCornerRulers, readCornerRulers, type SavedCornerRuler } from "@/lib/cornerRulerStore";
 import { normalizeSavedTape, readTape, type SavedTape } from "@/lib/tapeStore";
 import { isSketchKeyring } from "@/lib/sketchKeyring";
@@ -69,7 +72,7 @@ export const LYL_FILE_TYPES_FORMAT_VERSION = 4;
 /** The newest format this layerling reads. */
 export const LYL_NEWEST_READABLE_FORMAT_VERSION = LYL_FILE_TYPES_FORMAT_VERSION;
 export const LYL_OLDEST_READABLE_FORMAT_VERSION = 1;
-export const LYL_CREATED_WITH_VERSION = "1.166.0";
+export const LYL_CREATED_WITH_VERSION = "1.170.1";
 export const LYL_MEDIA_TYPE = "application/vnd.layerling.project+zip";
 
 export const LYL_LIMITS = {
@@ -263,6 +266,8 @@ export type LylProjectDocumentV1 = {
     view?: DesignView;
     /** The views saved under 7, 8, 9 and 0, null where a slot is empty; older readers pass over them. */
     savedViews?: SavedDesignViews;
+    /** The drawing number and revision of its 2D drawings (forum, Lofo); older readers pass over them. */
+    drawingInfo?: DesignDrawingInfo;
     /** The framing square where it was set (#829); older readers pass over it. */
     cornerRulers?: SavedCornerRuler[];
     /** The tape measure's measurements and whether they are shown (#881); older readers pass over it. */
@@ -291,6 +296,8 @@ export type LylProjectExportInput = {
   view?: DesignView | null;
   /** The views saved under 7 to 0; when left out, the ones the browser keeps for this design go in. */
   savedViews?: SavedDesignViews | null;
+  /** The drawing number and revision; when left out, the ones the browser keeps for this design go in. */
+  drawingInfo?: DesignDrawingInfo | null;
   /** The framing square; when left out, the one the browser keeps for this design goes in (#829). */
   cornerRulers?: SavedCornerRuler[] | null;
   /** The tape measure's measurements; when left out, the ones the browser keeps for this design go in (#881). */
@@ -321,6 +328,8 @@ export type LylRestoredProject = {
   view?: DesignView;
   /** The views saved under 7 to 0, when the file has any. */
   savedViews?: SavedDesignViews;
+  /** The drawing number and revision, when the file has them. */
+  drawingInfo?: DesignDrawingInfo;
   /** The framing square, when the file has one (#829). */
   cornerRulers?: SavedCornerRuler[];
   /** The tape measure's measurements, when the file has them (#881). */
@@ -558,7 +567,9 @@ function encodedAssetPayload(resource: object, encode: () => Uint8Array) {
 // exact bodies or more each one had pushed out the next before it was asked for,
 // and nothing was ever found. Now it holds as many as fit in a budget of text,
 // so a design full of large bodies does not keep copies of all of them either.
-const TEXT_PAYLOAD_CACHE_LIMIT = 256;
+// The count was 256, which an imported assembly of a few hundred small parts
+// passed in the same way (#1794); the budget of text is what bounds the memory.
+const TEXT_PAYLOAD_CACHE_LIMIT = 4096;
 const TEXT_PAYLOAD_CACHE_CHARS = 48 * 1024 * 1024;
 const encodedTextPayloads = new Map<string, Promise<EncodedAssetPayload>>();
 let encodedTextChars = 0;
@@ -844,6 +855,7 @@ async function serializeShapeNode(
       ...(sketchProfile.stroke ? { stroke: sketchProfile.stroke } : {}),
       ...(sketchProfile.silhouette ? { silhouette: true } : {}),
       ...(sketchProfile.keyring ? { keyring: sketchProfile.keyring } : {}),
+      ...(sketchProfile.flush ? { flush: sketchProfile.flush } : {}),
       ...(sketchProfile.inset ? { inset: sketchProfile.inset } : {}),
       ...(sketchProfile.sweepAnchor && sketchProfile.sweepAnchor !== "center" ? { sweepAnchor: sketchProfile.sweepAnchor } : {}),
     };
@@ -1060,8 +1072,8 @@ function activeProjectIndexes(state: LylStateV1) {
   return { features, groups, sketches, exactCad };
 }
 
-function zipAsync(files: ArchiveFiles, level: NonNullable<LylProjectExportInput["compressionLevel"]> = 6, stored?: ReadonlySet<string>) {
-  return boundedProjectZip(files, level, stored);
+function zipAsync(files: ArchiveFiles, level: NonNullable<LylProjectExportInput["compressionLevel"]> = 6, stored?: ReadonlySet<string>, unchanging?: ReadonlySet<string>) {
+  return boundedProjectZip(files, level, stored, unchanging);
 }
 
 function unzipAsync(bytes: Uint8Array) {
@@ -1175,6 +1187,7 @@ export async function exportLylProject(input: LylProjectExportInput) {
   const sketchPlacementWorkplane = normalizePlacementWorkplane(input.sketchPlacementWorkplane);
   const view = input.view === undefined ? readDesignView(input.projectId) : normalizeDesignView(input.view);
   const savedViews = normalizeSavedViews(input.savedViews === undefined ? readSavedViews(input.projectId) : input.savedViews);
+  const drawingInfo = normalizeDesignDrawingInfo(input.drawingInfo === undefined ? readDesignDrawingInfo(input.projectId) : input.drawingInfo);
   const cornerRulers = normalizeSavedCornerRulers(input.cornerRulers === undefined ? readCornerRulers(input.projectId) : input.cornerRulers);
   const tapeMeasurements = normalizeSavedTape(input.tapeMeasurements === undefined ? readTape(input.projectId) : input.tapeMeasurements);
   const selectedWorkplaneId = placementWorkplaneIsBase(placementWorkplane) ? "workplane-base" : "workplane-active";
@@ -1217,6 +1230,7 @@ export async function exportLylProject(input: LylProjectExportInput) {
       sketchPlacementWorkplane,
       ...(view ? { view } : {}),
       ...(savedViews ? { savedViews } : {}),
+      ...(drawingInfo ? { drawingInfo } : {}),
       ...(cornerRulers ? { cornerRulers } : {}),
       ...(tapeMeasurements ? { tapeMeasurements } : {}),
     },
@@ -1237,7 +1251,9 @@ export async function exportLylProject(input: LylProjectExportInput) {
   }
   // Attached pictures and PDF files are compressed already: they go in as they are (see `compressed`).
   const stored = new Set(builder.assets.filter((asset) => asset.kind === "attachment" && attachmentTypeForMediaType(asset.mediaType)?.compressed).map((asset) => asset.path));
-  return zipAsync(Object.fromEntries(Object.entries(builder.files).sort(([a], [b]) => a.localeCompare(b))), input.compressionLevel, stored);
+  // An asset's path is the hash of its bytes, so the same path is the same file in every save: deflated once (#1794).
+  const unchanging = new Set(builder.assets.map((asset) => asset.path));
+  return zipAsync(Object.fromEntries(Object.entries(builder.files).sort(([a], [b]) => a.localeCompare(b))), input.compressionLevel, stored, unchanging);
 }
 
 function inspectZipBeforeExpansion(bytes: Uint8Array) {
@@ -1506,6 +1522,7 @@ function validateSketchProfile(value: unknown, label: string) {
     });
   }
   if (profile.silhouette !== undefined && typeof profile.silhouette !== "boolean") throw new Error(`${label}.silhouette must be true or false`);
+  if (profile.flush !== undefined && !normalizeFlushLayer(profile.flush)) throw new Error(`${label}.flush must be { depth, height } above 0 and, if it has one, a pocket { grow, join, silhouette }`);
   if (profile.keyring !== undefined && !isSketchKeyring(profile.keyring)) throw new Error(`${label}.keyring must be { side, diameter, x, z } and a free place (#598) with corners of -1 or 1 if it has one`);
   if (profile.sweepAnchor !== undefined && profile.sweepAnchor !== "left" && profile.sweepAnchor !== "center" && profile.sweepAnchor !== "right") throw new Error(`${label}.sweepAnchor must be left, center or right`);
   if (profile.inset !== undefined) {
@@ -1578,6 +1595,8 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
   if (definition.importedMesh || definition.groupedShapes || definition.edgeTreatmentHistory || definition.cadBrep) {
     throw new Error(`${label} contains inline package-only geometry fields`);
   }
+  if(definition.positionRelationships!==undefined)validatePositionRelationships(definition.positionRelationships);
+  if(definition.elevationRelationship!==undefined)validateElevationRelationship(definition.elevationRelationship);
   if(definition.parameterBindings!==undefined){
     const bindings=objectRecord(definition.parameterBindings,`${label}.parameterBindings`);
     for(const [field,binding] of Object.entries(bindings)){if(!PARAMETER_FIELDS.includes(field as typeof PARAMETER_FIELDS[number]))throw Error("Unsupported parameter property");validateVariableExpression(binding);}
@@ -1617,6 +1636,10 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
   if (definition.textSilhouette !== undefined && typeof definition.textSilhouette !== "boolean") {
     throw new Error(`${label}.textSilhouette must be true or false`);
   }
+  // A name tag layer laid in flush (#215).
+  if (definition.textFlush !== undefined && !normalizeFlushLayer(definition.textFlush)) {
+    throw new Error(`${label}.textFlush must be { depth, height } above 0 and, if it has one, a pocket { grow, join, silhouette }`);
+  }
   if (definition.textStretch !== undefined && typeof definition.textStretch !== "boolean") {
     throw new Error(`${label}.textStretch must be true or false`);
   }
@@ -1634,9 +1657,16 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
   if (definition.textLetterWidth !== undefined && !(typeof definition.textLetterWidth === "number" && Number.isFinite(definition.textLetterWidth) && definition.textLetterWidth >= 25 && definition.textLetterWidth <= 400)) {
     throw new Error(`${label}.textLetterWidth must be a number from 25 to 400`);
   }
-  // The top edge of a text's letters (#225): round or chamfer, with a size.
+  // Curved text that closes its circle (#1840).
+  if (definition.textFullCircle !== undefined && typeof definition.textFullCircle !== "boolean") {
+    throw new Error(`${label}.textFullCircle must be true or false`);
+  }
+  // The edge of a text's letters (#225): round or chamfer, with a size, on the top unless its side says the bottom or both.
   if (definition.textEdge !== undefined && !normalizeTextEdge(definition.textEdge)) {
     throw new Error(`${label}.textEdge must be a round or chamfer edge with a size`);
+  }
+  if (definition.textEdge !== undefined && (definition.textEdge as { side?: unknown }).side !== undefined && !isTextEdgeSide((definition.textEdge as { side?: unknown }).side)) {
+    throw new Error(`${label}.textEdge.side must be top, bottom or both`);
   }
   if (definition.layeredText !== undefined && typeof definition.layeredText !== "boolean") {
     throw new Error(`${label}.layeredText must be true or false`);
@@ -2007,10 +2037,10 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
     if (definition.gridfinityType !== undefined && definition.gridfinityType !== "bin" && definition.gridfinityType !== "baseplate" && definition.gridfinityType !== "tray") {
       throw new Error(`${label}.gridfinityType is invalid`);
     }
-    for (const key of ["gridfinityLip", "gridfinityMagnets", "gridfinityHalfGrid", "gridfinityLargePlate", "gridfinitySwallowtail", "gridfinityLabelBack", "gridfinityLabelFront", "gridfinityLabelLeft", "gridfinityLabelRight", "gridfinityScoopBack", "gridfinityScoopFront", "gridfinityScoopLeft", "gridfinityScoopRight", "gridfinityOpenBack", "gridfinityOpenFront", "gridfinityOpenLeft", "gridfinityOpenRight", "gridfinityOverhangSolid", "gridfinityOverhangLipOnGrid", "hingePinless"] as const) {
+    for (const key of ["gridfinityLip", "gridfinityMagnets", "gridfinityHalfGrid", "gridfinityLargePlate", "gridfinitySwallowtail", "gridfinityClipNotches", "gridfinityLabelBack", "gridfinityLabelFront", "gridfinityLabelLeft", "gridfinityLabelRight", "gridfinityScoopBack", "gridfinityScoopFront", "gridfinityScoopLeft", "gridfinityScoopRight", "gridfinityOpenBack", "gridfinityOpenFront", "gridfinityOpenLeft", "gridfinityOpenRight", "gridfinityOverhangSolid", "gridfinityOverhangLipOnGrid", "hingePinless"] as const) {
       if (definition[key] !== undefined && typeof definition[key] !== "boolean") throw new Error(`${label}.${key} must be true or false`);
     }
-    for (const key of ["gridfinityLabelBackWidth", "gridfinityLabelBackLength", "gridfinityLabelBackOffset", "gridfinityLabelFrontWidth", "gridfinityLabelFrontLength", "gridfinityLabelFrontOffset", "gridfinityLabelLeftWidth", "gridfinityLabelLeftLength", "gridfinityLabelLeftOffset", "gridfinityLabelRightWidth", "gridfinityLabelRightLength", "gridfinityLabelRightOffset", "gridfinityLabelCornerSize", "gridfinityLabelTextSize", "gridfinityOverhangBack", "gridfinityOverhangFront", "gridfinityOverhangLeft", "gridfinityOverhangRight", "gridfinityOverhangChamfer", "gridfinityScoopRadius", "gridfinityFloorHeight", "gridfinityLipChamfer", "gridfinityWallThickness", "gridfinityOpeningCornerSize", "gridfinityPaddingBack", "gridfinityPaddingFront", "gridfinityPaddingLeft", "gridfinityPaddingRight", "gridfinityCornerRadius", "gridfinityBinCornerRadius", "gridfinitySwallowtailClearance", "gridfinityCompartmentsX", "gridfinityCompartmentsZ", "gridfinityDividerThickness", "gridfinityDividerHeight"] as const) {
+    for (const key of ["gridfinityLabelBackWidth", "gridfinityClipCount", "gridfinityLabelBackLength", "gridfinityLabelBackOffset", "gridfinityLabelFrontWidth", "gridfinityLabelFrontLength", "gridfinityLabelFrontOffset", "gridfinityLabelLeftWidth", "gridfinityLabelLeftLength", "gridfinityLabelLeftOffset", "gridfinityLabelRightWidth", "gridfinityLabelRightLength", "gridfinityLabelRightOffset", "gridfinityLabelCornerSize", "gridfinityLabelTextSize", "gridfinityOverhangBack", "gridfinityOverhangFront", "gridfinityOverhangLeft", "gridfinityOverhangRight", "gridfinityOverhangChamfer", "gridfinityScoopRadius", "gridfinityFloorHeight", "gridfinityLipChamfer", "gridfinityWallThickness", "gridfinityOpeningCornerSize", "gridfinityPaddingBack", "gridfinityPaddingFront", "gridfinityPaddingLeft", "gridfinityPaddingRight", "gridfinityCornerRadius", "gridfinityBinCornerRadius", "gridfinitySwallowtailClearance", "gridfinityCompartmentsX", "gridfinityCompartmentsZ", "gridfinityDividerThickness", "gridfinityDividerHeight"] as const) {
       if (definition[key] === undefined) continue;
       const value = finiteNumber(definition[key], `${label}.${key}`);
       // Only an offset runs both ways along a wall.
@@ -2061,6 +2091,24 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
         }
         if (entry.align !== undefined && entry.align !== "start" && entry.align !== "middle" && entry.align !== "end") throw new Error(`${entryLabel}.align is invalid`);
         if (entry.text !== undefined && (typeof entry.text !== "string" || entry.text.length > MAX_GRIDFINITY_LABEL_TEXT_LENGTH)) throw new Error(`${entryLabel}.text must be a string of at most ${MAX_GRIDFINITY_LABEL_TEXT_LENGTH} characters`);
+      });
+    }
+    if (definition.gridfinityCompartmentSplits !== undefined) {
+      if (!Array.isArray(definition.gridfinityCompartmentSplits)) throw new Error(`${label}.gridfinityCompartmentSplits must be an array`);
+      const splits = definition.gridfinityCompartmentSplits as unknown[];
+      if (splits.length > 576) throw new Error(`${label}.gridfinityCompartmentSplits has an unsupported number of entries`);
+      splits.forEach((raw, index) => {
+        const entryLabel = `${label}.gridfinityCompartmentSplits[${index}]`;
+        const entry = objectRecord(raw, entryLabel);
+        for (const key of ["column", "row"] as const) {
+          const value = finiteNumber(entry[key], `${entryLabel}.${key}`);
+          if (value < 0 || value > 1e6) throw new Error(`${entryLabel}.${key} is outside the supported range`);
+        }
+        for (const key of ["x", "z"] as const) {
+          if (entry[key] === undefined) continue;
+          const value = finiteNumber(entry[key], `${entryLabel}.${key}`);
+          if (value < 0 || value > 1e6) throw new Error(`${entryLabel}.${key} is outside the supported range`);
+        }
       });
     }
     if (definition.gridfinityOpenings !== undefined) {
@@ -2184,6 +2232,10 @@ function validateShapeDefinition(definition: Record<string, unknown>, label: str
   if (kind === "port" && definition.portClearance !== undefined) {
     const portClearance = finiteNumber(definition.portClearance, `${label}.portClearance`);
     if (portClearance < 0 || portClearance > 2) throw new Error(`${label}.portClearance is outside the supported range`);
+  }
+  if (kind === "polygon" && definition.polygonFlat !== undefined && typeof definition.polygonFlat !== "boolean") {
+    // A polygon with a flat side in front (Discussion #1787): on or off.
+    throw new Error(`${label}.polygonFlat must be true or false`);
   }
   if ((kind === "port" || kind === "polygon") && definition.cornerFillet !== undefined) {
     const cornerFillet = finiteNumber(definition.cornerFillet, `${label}.cornerFillet`);
@@ -2606,7 +2658,7 @@ async function restoreV1(document: LylProjectDocumentV1, assetById: Map<string, 
       displayEdgeCache,
       sourceImporter,
     )));
-    restoredStates.set(state.id, shapes);
+    restoredStates.set(state.id, resolveObjectRelationships(shapes,resolveProjectVariables(state.variables??[])));
     restoredNotes.set(state.id, normalizeNotes(state.notes));
   }
   const history = document.history.entries.map((entry) => editorHistoryEntry(
@@ -2623,6 +2675,7 @@ async function restoreV1(document: LylProjectDocumentV1, assetById: Map<string, 
   const hydrated = hydrateEditorHistoryState(shapes, history, document.history.index, "unlimited", notes, placementWorkplane);
   const restoredView = normalizeDesignView(document.editor.view);
   const restoredSavedViews = normalizeSavedViews(document.editor.savedViews);
+  const restoredDrawingInfo = normalizeDesignDrawingInfo(document.editor.drawingInfo);
   const restoredCornerRulers = normalizeSavedCornerRulers(document.editor.cornerRulers);
   const restoredTape = normalizeSavedTape(document.editor.tapeMeasurements);
   // The files were checked with the document; each is copied out of the archive.
@@ -2650,6 +2703,7 @@ async function restoreV1(document: LylProjectDocumentV1, assetById: Map<string, 
     sketchPlacementWorkplane: normalizePlacementWorkplane(document.editor.sketchPlacementWorkplane),
     ...(restoredView ? { view: restoredView } : {}),
     ...(restoredSavedViews ? { savedViews: restoredSavedViews } : {}),
+    ...(restoredDrawingInfo ? { drawingInfo: restoredDrawingInfo } : {}),
     ...(restoredCornerRulers ? { cornerRulers: restoredCornerRulers } : {}),
     ...(restoredTape ? { tapeMeasurements: restoredTape } : {}),
     ...(document.formatVersion < LYL_FORMAT_VERSION ? { migratedFromVersion: document.formatVersion } : {}),

@@ -44,7 +44,7 @@ export function renameProjectVariable(variables:ProjectVariable[],shapes:Workpla
   return {expression,refs};
  };
  const next=variables.map(v=>({...v,...rewrite(v),name:v.id===id?name:v.name}));resolveProjectVariables(next);
- const rewriteShape=(s:WorkplaneShape):WorkplaneShape=>({...s,...(s.parameterBindings?{parameterBindings:Object.fromEntries(Object.entries(s.parameterBindings).map(([field,b])=>[field,rewrite(b)]))}:{}),...(s.groupedShapes?{groupedShapes:s.groupedShapes.map(rewriteShape)}:{})});
+ const rewriteShape=(s:WorkplaneShape):WorkplaneShape=>({...s,...(s.positionRelationships?{positionRelationships:Object.fromEntries(Object.entries(s.positionRelationships).map(([axis,r])=>[axis,{...r!,offset:rewrite(r!.offset)}]))}:{}),...(s.elevationRelationship?{elevationRelationship:{...s.elevationRelationship,offset:rewrite(s.elevationRelationship.offset)}}:{}),...(s.parameterBindings?{parameterBindings:Object.fromEntries(Object.entries(s.parameterBindings).map(([field,b])=>[field,rewrite(b)]))}:{}),...(s.groupedShapes?{groupedShapes:s.groupedShapes.map(rewriteShape)}:{})});
  return {variables:next,shapes:shapes.map(rewriteShape)};
 }
 export function compileVariableDraft(current:readonly ProjectVariable[],draft:ProjectVariable[]) {
@@ -61,14 +61,26 @@ export function rewriteParameterNames(shapes:WorkplaneShape[],variables:ProjectV
   const expression=b.expression.replace(/[A-Za-z_][A-Za-z0-9_]*/g,token=>{const id=b.refs[token],name=variables.find(v=>v.id===id)?.name??token;if(id)refs[name]=id;return name;});
   return {...b,expression,refs};
  };
- return shapes.map(s=>({...s,...(s.parameterBindings?{parameterBindings:Object.fromEntries(Object.entries(s.parameterBindings).map(([key,b])=>[key,rewrite(b)]))}:{}),...(s.sketchProfile?.constraints?{sketchProfile:{...s.sketchProfile,constraints:s.sketchProfile.constraints.map(rule=>rule.dimensionBinding?{...rule,dimensionBinding:rewrite(rule.dimensionBinding)}:rule)}}:{}),...(s.groupedShapes?{groupedShapes:rewriteParameterNames(s.groupedShapes,variables)}:{})}));
+ return shapes.map(s=>({...s,...(s.positionRelationships?{positionRelationships:Object.fromEntries(Object.entries(s.positionRelationships).map(([axis,r])=>[axis,{...r!,offset:rewrite(r!.offset)}]))}:{}),...(s.elevationRelationship?{elevationRelationship:{...s.elevationRelationship,offset:rewrite(s.elevationRelationship.offset)}}:{}),...(s.parameterBindings?{parameterBindings:Object.fromEntries(Object.entries(s.parameterBindings).map(([key,b])=>[key,rewrite(b)]))}:{}),...(s.sketchProfile?.constraints?{sketchProfile:{...s.sketchProfile,constraints:s.sketchProfile.constraints.map(rule=>rule.dimensionBinding?{...rule,dimensionBinding:rewrite(rule.dimensionBinding)}:rule)}}:{}),...(s.groupedShapes?{groupedShapes:rewriteParameterNames(s.groupedShapes,variables)}:{})}));
 }
 export function parameterUsage(variables:readonly ProjectVariable[],shapes:readonly WorkplaneShape[],id:string):number {
  let count=variables.filter(v=>Object.values(v.refs).includes(id)).length;
- const walk=(list:readonly WorkplaneShape[])=>list.forEach(s=>{count+=Object.values(s.parameterBindings??{}).filter(b=>Object.values(b.refs).includes(id)).length;count+=(s.sketchProfile?.constraints??[]).filter(rule=>rule.dimensionBinding&&Object.values(rule.dimensionBinding.refs).includes(id)).length;if(s.groupedShapes)walk(s.groupedShapes);});walk(shapes);return count;
+ const walk=(list:readonly WorkplaneShape[])=>list.forEach(s=>{count+=Object.values(s.positionRelationships??{}).filter(r=>r&&Object.values(r.offset.refs).includes(id)).length;count+=(s.elevationRelationship&&Object.values(s.elevationRelationship.offset.refs).includes(id)?1:0);count+=Object.values(s.parameterBindings??{}).filter(b=>Object.values(b.refs).includes(id)).length;count+=(s.sketchProfile?.constraints??[]).filter(rule=>rule.dimensionBinding&&Object.values(rule.dimensionBinding.refs).includes(id)).length;if(s.groupedShapes)walk(s.groupedShapes);});walk(shapes);return count;
 }
 /** Controlled initial property set. Complex/generated bodies keep their existing editing rules. */
 export function supportsParameters(shape:WorkplaneShape){return !shape.groupedShapes && (shape.sketchProfile ? !shape.sketchProfile.constraints?.length : ['box','cylinder','sphere','cone','wedge','roof','roundedBox'].includes(shape.kind)&&!shape.cadBrep);}
+/** Position is independent of a sketch outline; flat extrusion height is too. */
+export function supportsParameterField(shape:WorkplaneShape,field:string){
+ if(shape.elevationRelationship&&field==='positionZ'||shape.positionRelationships?.x&&field==='positionX'||shape.positionRelationships?.y&&field==='positionY')return false;
+ if(shape.sketchProfile&& !shape.groupedShapes?.length){
+  if(field.startsWith('position'))return true;
+  if(field==='height'&&(!shape.sketchOperation||shape.sketchOperation==='extrude')&&!shape.sketchRevolve){
+   const pose=shape.sketchPose?.transform;
+   return Math.abs(shape.rotationX??0)<1e-6&&Math.abs(shape.rotationZ??0)<1e-6&&(!pose||(Math.abs(pose[1])<1e-6&&Math.abs(pose[9])<1e-6));
+  }
+ }
+ return supportsParameters(shape);
+}
 export function parameterValue(shape:WorkplaneShape,field:string){
  return field==='width'?shape.width??shape.size:field==='length'?shape.depth??shape.size:field==='height'?shape.height:field==='positionX'?shape.x:field==='positionY'?shape.z:shape.elevation??0;
 }

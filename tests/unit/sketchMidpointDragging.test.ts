@@ -115,6 +115,8 @@ describe("midpoint drag regression", () => {
     render(twoLines());
     const svg = container.querySelector("svg.sketch-plate")!;
     pointer(container.querySelectorAll('[data-sketch-entity="point"]')[2], "pointerdown", 0, 0);
+    // Cross the click tolerance before checking sub-pixel drag updates.
+    pointer(svg, "pointermove", 0, 5);
     const frames = [];
     for (let i = 0; i < 6; i++) { pointer(svg, "pointermove", 0, 1); frames.push(positions()); }
     expect(frames.every(frame => JSON.stringify(frame) === JSON.stringify(frames[0]))).toBe(true);
@@ -135,6 +137,7 @@ describe("midpoint drag regression", () => {
     const svg = container.querySelector("svg.sketch-plate")!;
     const start = initial.points[index];
     pointer(container.querySelectorAll('[data-sketch-entity="point"]')[index], "pointerdown", start.x, start.z);
+    pointer(svg, "pointermove", start.x + 5, start.z - 5);
     for (let step = 1; step <= 20; step++) {
       const x = start.x + step / 10, z = start.z - step / 10;
       pointer(svg, "pointermove", x, z);

@@ -3,7 +3,7 @@ import { repairClampedMeshBase } from "@/lib/importedMeshBase";
 import { fieldFormulasEqual } from "@/lib/fieldFormulas";
 import { threadFootprintPatch } from "@/lib/threadGeometry";
 import { pulleyFootprint } from "@/lib/pulleyGeometry";
-import { GRIDFINITY_OVERHANG_KEYS, GRIDFINITY_PADDING_KEYS, normalizeGridfinityOverhang, gridfinityCompartmentLabelsEqual, gridfinityDividerPositionsEqual, gridfinityFootprintPatch, gridfinityOpeningsEqual, gridfinityOutlinesEqual, normalizeGridfinityPadding } from "@/lib/gridfinityGeometry";
+import { GRIDFINITY_OVERHANG_KEYS, GRIDFINITY_PADDING_KEYS, normalizeGridfinityOverhang, gridfinityCompartmentLabelsEqual, gridfinityCompartmentSplitsEqual, gridfinityDividerPositionsEqual, gridfinityFootprintPatch, gridfinityOpeningsEqual, gridfinityOutlinesEqual, normalizeGridfinityPadding } from "@/lib/gridfinityGeometry";
 import { MCP_SHAPE_SETTING_KEYS } from "@/lib/mcpShapeSettings";
 import { bentTubeSegmentsEqual } from "@/lib/bentTubeGeometry";
 import { vaseSettingsEqual } from "@/lib/vaseSettings";
@@ -604,6 +604,13 @@ export function canonicalizeShape(unrepaired: WorkplaneShape): WorkplaneShape {
     mirrorY: shape.mirrorY || undefined,
     mirrorZ: shape.mirrorZ || undefined,
   };
+  // The Roof (#1931) keeps its three sides and a corner on top, whatever else asks to change them.
+  if (shape.kind === "polygon" && shape.polygonRoof) {
+    next.sides = 3;
+    next.polygonFlat = undefined;
+  } else if (next.polygonRoof !== undefined) {
+    next.polygonRoof = undefined;
+  }
   if (shape.kind === "thread") {
     const footprint = threadFootprintPatch(next);
     Object.assign(next, footprint);
@@ -636,7 +643,7 @@ export function canonicalizeShape(unrepaired: WorkplaneShape): WorkplaneShape {
     next.torusTubeRatio = torusTubeRatio(next);
   }
   if (shape.groupedShapes) {
-    next.groupedShapes = shape.groupedShapes.map(canonicalizeShape);
+    next.groupedShapes = canonicalGroupedShapes(shape.groupedShapes);
   }
   if ("groupResize" in shape) {
     const groupResize = normalizeGroupResize(shape.groupResize);
@@ -659,6 +666,27 @@ export function canonicalizeShape(unrepaired: WorkplaneShape): WorkplaneShape {
   if (shape.edgeTreatmentHistory) {
     next.edgeTreatmentHistory = canonicalEdgeTreatmentHistory(shape.edgeTreatmentHistory);
   }
+  return next;
+}
+
+const canonicalGroupParts = new WeakMap<readonly WorkplaneShape[], WorkplaneShape[]>();
+
+/**
+ * A group's parts canonicalized once (Issue #1875). Moving a group, or moving something else in the design, keeps the
+ * group's array of parts, and handing back the same canonical array each time is what lets the view keep what it has
+ * built from it: the view tells a group in its parts' colours by this array (shapeGeometrySignature) and keeps the
+ * coloured mesh under it (getPartColoredMeshGeometry). Every step of the history canonicalizes the whole design, and a
+ * new array for every group each time made every arrow key, every Undo and every Redo build all Multicolor groups of
+ * the design again, not only what had moved - seconds in a large design, while a mouse drag, which hands the bodies it
+ * does not touch on as they are, stayed quick. A group whose parts change gets a new array from whoever changes them,
+ * and with it a new canonical one.
+ */
+function canonicalGroupedShapes(parts: readonly WorkplaneShape[]): WorkplaneShape[] {
+  const cached = canonicalGroupParts.get(parts);
+  if (cached) return cached;
+  const next = parts.map(canonicalizeShape);
+  canonicalGroupParts.set(parts, next);
+  canonicalGroupParts.set(next, next);
   return next;
 }
 
@@ -866,6 +894,8 @@ export function workplaneShapesEqual(a: WorkplaneShape, b: WorkplaneShape) {
     a.gridfinityHalfGrid === b.gridfinityHalfGrid &&
     a.gridfinityLargePlate === b.gridfinityLargePlate &&
     a.gridfinitySwallowtail === b.gridfinitySwallowtail &&
+    a.gridfinityClipNotches === b.gridfinityClipNotches &&
+    a.gridfinityClipCount === b.gridfinityClipCount &&
     a.gridfinitySwallowtailClearance === b.gridfinitySwallowtailClearance &&
     a.gridfinityLabelBack === b.gridfinityLabelBack &&
     a.gridfinityLabelFront === b.gridfinityLabelFront &&
@@ -924,6 +954,7 @@ export function workplaneShapesEqual(a: WorkplaneShape, b: WorkplaneShape) {
     gridfinityDividerPositionsEqual(a.gridfinityDividerPositionsX, b.gridfinityDividerPositionsX) &&
     gridfinityDividerPositionsEqual(a.gridfinityDividerPositionsZ, b.gridfinityDividerPositionsZ) &&
     gridfinityCompartmentLabelsEqual(a.gridfinityCompartmentLabels, b.gridfinityCompartmentLabels) &&
+    gridfinityCompartmentSplitsEqual(a.gridfinityCompartmentSplits, b.gridfinityCompartmentSplits) &&
     gridfinityOpeningsEqual(a.gridfinityOpenings, b.gridfinityOpenings) &&
     a.gridfinityOpeningCorner === b.gridfinityOpeningCorner &&
     a.gridfinityOpeningCornerSize === b.gridfinityOpeningCornerSize &&
@@ -965,6 +996,8 @@ export function workplaneShapesEqual(a: WorkplaneShape, b: WorkplaneShape) {
     a.portProfile === b.portProfile &&
     a.portClearance === b.portClearance &&
     a.cornerFillet === b.cornerFillet &&
+    Boolean(a.polygonFlat) === Boolean(b.polygonFlat) &&
+    Boolean(a.polygonRoof) === Boolean(b.polygonRoof) &&
     sameNumberList(a.cornerFillets, b.cornerFillets) &&
     a.topBottomFillet === b.topBottomFillet &&
     a.bottomFillet === b.bottomFillet &&
@@ -993,6 +1026,7 @@ export function workplaneShapesEqual(a: WorkplaneShape, b: WorkplaneShape) {
     vaseSettingsEqual(a.vase, b.vase) &&
     a.vasePartOf === b.vasePartOf &&
     a.gridfinityKeyOf === b.gridfinityKeyOf &&
+    a.gridfinityClipOf === b.gridfinityClipOf &&
     a.textRadius === b.textRadius &&
     a.textSize === b.textSize &&
     a.textInward === b.textInward &&
@@ -1004,8 +1038,10 @@ export function workplaneShapesEqual(a: WorkplaneShape, b: WorkplaneShape) {
     (a.textSpacing ?? 0) === (b.textSpacing ?? 0) &&
     Boolean(a.textKerning) === Boolean(b.textKerning) &&
     (a.textLetterWidth ?? 100) === (b.textLetterWidth ?? 100) &&
+    Boolean(a.textFullCircle) === Boolean(b.textFullCircle) &&
     JSON.stringify(a.textKeyring ?? null) === JSON.stringify(b.textKeyring ?? null) &&
     JSON.stringify(a.textEdge ?? null) === JSON.stringify(b.textEdge ?? null) &&
+    JSON.stringify(a.textFlush ?? null) === JSON.stringify(b.textFlush ?? null) &&
     qrSettingsEqual(a.qrCode, b.qrCode) &&
     (a.sbcBoard?.board ?? null) === (b.sbcBoard?.board ?? null) &&
     (a.sbcBoard?.clearance ?? 0) === (b.sbcBoard?.clearance ?? 0) &&
@@ -1045,6 +1081,8 @@ export function workplaneShapesEqual(a: WorkplaneShape, b: WorkplaneShape) {
     a.rotationPivot === b.rotationPivot &&
     fieldFormulasEqual(a.formulas, b.formulas) &&
     JSON.stringify(a.parameterBindings??null) === JSON.stringify(b.parameterBindings??null) &&
+    JSON.stringify(a.elevationRelationship??null) === JSON.stringify(b.elevationRelationship??null) &&
+    JSON.stringify(a.positionRelationships??null) === JSON.stringify(b.positionRelationships??null) &&
     a.locked === b.locked &&
     Boolean(a.shapeLocked) === Boolean(b.shapeLocked) &&
     a.hidden === b.hidden &&

@@ -10,6 +10,8 @@ import { SketchConstraintInspector } from "@/components/SketchConstraintInspecto
 
 import { previewLabelSpot } from "@/lib/sketchPreviewLabel";
 import { applySketchConstraints, sketchConstraintReferences, sketchConstraintRelationships, type SketchConstraintFailure, sameSketchEndpoints, sketchRayAngle, sketchLineProjection, sketchOutlineClearance, sketchOutlineSegments, sketchCircleGeometry } from "@/lib/sketchConstraints";
+import { pointCoordinateLabel, pointCoordinateLabelSpot, pointDragStarted } from "@/lib/sketchPointHover";
+
 import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical, Check, ChevronUp, CornerDownRight, Crop, Crosshair, Eye, EyeOff, FlipHorizontal2, FlipVertical2, Home, Layers, Link, Link2Off, LockKeyhole, LockKeyholeOpen, Magnet, Minus, Plus, Ruler, RulerDimensionLine, Scissors, Slash, Spline, Split, Trash2, WandSparkles, Waves, X } from "lucide-react";
 import { displayedHandle, handleAtOffset, handleOffset } from "@/lib/sketchBezierHandles";
 import { curveStretches } from "@/lib/sketchCurveThroughPoints";
@@ -51,7 +53,9 @@ import { DEFAULT_SNAP_GRID, DEFAULT_WORKPLANE_WORKSPACE, keyboardNudgeCoarseFact
 import type { GridSize, SketchConstraintInput, SketchImage, SketchNote, SketchOperation, SketchPoint, SketchProfile, SketchSegment, SketchStroke, SketchStrokeAlign, SketchStrokeCap, SketchStrokeJoin, SweepAnchor, WorkplaneShape, WorkplaneWorkspaceSettings } from "@/types/layerling";
 import { resizePointerOnGrid } from "@/lib/sketchFrameResize";
 import { viewArrowStep } from "@/lib/viewArrowKeys";
+import { flushSync } from "react-dom";
 import { concentricResizeLocks, resizeSketchPoints, resizeSketchPointsToSize, type ResizeHandle, type SelectionBounds } from "@/lib/sketchSelectionResize";
+
 import { alignSketchSelection, canAlignSketchSelection, type SketchAlignMode } from "@/lib/sketchAlign";
 import { changesLockedOutline, lockedCornerTurn, lockedLengthAnchor, sketchLockState } from "@/lib/sketchLock";
 import { dragRotationDegrees, rotateSketchPointsAbout, sketchPointsPivot, sketchTurnRing, sketchTurnStep, SKETCH_TURN_RING_STEP } from "@/lib/sketchRotation";
@@ -197,9 +201,10 @@ type SketchReferenceFootprint = {
 };
 type PointerAction =
   | { kind: "bezier"; pointerId: number; origin: { x: number; z: number }; current: { x: number; z: number } }
-  | { kind: "move-point"; pointerId: number; pointId: string; origin: { x: number; z: number }; current: { x: number; z: number } }
+  | { kind: "move-point"; pointerId: number; pointId: string; origin: { x: number; z: number }; current: { x: number; z: number }; press: { x: number; y: number }; dragging: boolean }
   | { kind: "move-selection"; pointerId: number; origin: { x: number; z: number }; current: { x: number; z: number }; startPoints: SketchPoint[]; clickSegment?: { id: string; clientX: number; clientY: number } }
   | { kind: "resize-selection"; pointerId: number; handle: ResizeHandle; current: { x: number; z: number }; startPoints: SketchPoint[]; bounds: SelectionBounds; proportional?: boolean; concentricLocks?: ReadonlySet<string>; grab?: { x: number; z: number } }
+
   | { kind: "move-handle"; pointerId: number; pointId: string; handle: "in" | "out"; current: { x: number; z: number } }
   | { kind: "pan"; pointerId: number; clientX: number; clientY: number }
   | { kind: "marquee"; pointerId: number; origin: { x: number; z: number }; current: { x: number; z: number }; clientX: number; clientY: number }
@@ -208,6 +213,20 @@ type PointerAction =
   | { kind: "rotate-selection"; pointerId: number; pivot: { x: number; z: number }; start: { x: number; z: number }; current: { x: number; z: number }; startPoints: SketchPoint[]; snap: boolean; ring: number; corner: number }
   | { kind: "rotate-image"; pointerId: number; imageId: string; startAngle: number; current: { x: number; z: number }; start: SketchImage; snap: boolean; ring: number; corner: number }
   | { kind: "crop-image"; pointerId: number; imageId: string; handle: ResizeHandle; current: { x: number; z: number }; start: SketchImage };
+
+/**
+ * A run of arrow presses (#1930): the sketch draws the move itself, as it does for a drag, and hands
+ * it to the editor once, when the keys rest. Handing over every press made the editor draw everything
+ * again each time, which a single press felt as a delay and a held key as jumps.
+ */
+type SketchKeyNudge =
+  | { kind: "points"; startPoints: SketchPoint[]; dx: number; dz: number }
+  | { kind: "handle"; pointId: string; handle: "in" | "out"; at: { x: number; z: number } }
+  | { kind: "image"; imageId: string; at: { x: number; z: number } };
+
+/** How long the keys rest before the moves of a run go to the editor; a quick tap after a tap still joins the run. */
+const KEY_NUDGE_HANDOVER_MS = 300;
+const ARROW_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
 /** The step a turn of a selection or a picture snaps to, by where the pointer is against the ring it shows. */
 /**
@@ -891,6 +910,8 @@ export function SketchWorkspace({
   const segmentClickRef = useRef<SketchSegmentClick | null>(null);
   const emptyPressRef = useRef<{ x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ x: number; z: number } | null>(null);
+  // The point the pointer rests on: a small label beside it says where it lies (Discussion #1801).
+  const [hoveredPointId, setHoveredPointId] = useState<string | null>(null);
   // Where a shape dragged in from the Shapes menu would land on a snap point (#1236).
   const [dropSnap, setDropSnap] = useState<{ x: number; z: number } | null>(null);
   // The three-point arc (#643): the two ends clicked so far; the third click sets the bend.
@@ -1018,7 +1039,36 @@ export function SketchWorkspace({
       // The switch still holds for this session.
     }
   };
+  // The arrow keys' run, drawn here until it goes to the editor (#1930). The ref is what the key
+  // handler reads, so presses between two drawings add up.
+  const [keyNudge, setKeyNudgeState] = useState<SketchKeyNudge | null>(null);
+  const keyNudgeRef = useRef<SketchKeyNudge | null>(null);
+  const setKeyNudge = (next: SketchKeyNudge | null) => {
+    keyNudgeRef.current = next;
+    setKeyNudgeState(next);
+  };
   const previewProfile = useMemo(() => {
+    if (keyNudge?.kind === "points") {
+      const movedById = new Map(translateSketchPoints(keyNudge.startPoints, keyNudge.dx, keyNudge.dz).map((point) => [point.id, point]));
+      return { ...profile, points: profile.points.map((point) => movedById.get(point.id) ?? point) };
+    }
+    if (keyNudge?.kind === "handle") {
+      return {
+        ...profile,
+        points: profile.points.map((point) => {
+          if (point.id !== keyNudge.pointId) return point;
+          const next = { ...point, handleIn: point.handleIn ? { ...point.handleIn } : undefined, handleOut: point.handleOut ? { ...point.handleOut } : undefined };
+          if (keyNudge.handle === "in") next.handleIn = { ...keyNudge.at };
+          else next.handleOut = { ...keyNudge.at };
+          if (point.mode === "smooth") {
+            const opposite = { x: point.x * 2 - keyNudge.at.x, z: point.z * 2 - keyNudge.at.z };
+            if (keyNudge.handle === "in") next.handleOut = opposite;
+            else next.handleIn = opposite;
+          }
+          return next;
+        }),
+      };
+    }
     if (pointerAction?.kind === "move-selection") {
       const moved = translateSketchPoints(
         pointerAction.startPoints,
@@ -1071,7 +1121,8 @@ export function SketchWorkspace({
       };
     }
     return profile;
-  }, [pointerAction, profile, keepProportions]);
+  }, [keyNudge, pointerAction, profile, keepProportions]);
+
   // A drag that would move a locked outline (#653) shows nothing moving: the editor refuses it on release.
   const [offsetOpen, setOffsetOpen] = useState(false);
   const [offsetFeatureId, setOffsetFeatureId] = useState<string | null>(null);
@@ -1147,6 +1198,9 @@ export function SketchWorkspace({
   const textPathAnchor = useMemo(()=>selectedLiveText&&textBaseline?sketchTextPathAnchor(selectedLiveText,textBaseline.length,textBaseline.closed):0,[selectedLiveText,textBaseline]);
   const displayImages = useMemo(() => {
     const images = profile.images ?? [];
+    if (keyNudge?.kind === "image") {
+      return images.map((image) => image.id === keyNudge.imageId ? { ...image, x: keyNudge.at.x, z: keyNudge.at.z } : image);
+    }
     if (pointerAction?.kind === "move-image") {
       const deltaX = pointerAction.current.x - pointerAction.origin.x;
       const deltaZ = pointerAction.current.z - pointerAction.origin.z;
@@ -1162,7 +1216,7 @@ export function SketchWorkspace({
       return images.map((image) => image.id === pointerAction.imageId ? { ...image, ...cropImage(pointerAction.start, pointerAction.handle, pointerAction.current) } : image);
     }
     return images;
-  }, [pointerAction, profile.images]);
+  }, [keyNudge, pointerAction, profile.images]);
   const pointById = useMemo(() => new Map(displayProfile.points.map((point) => [point.id, point])), [displayProfile.points]);
   const paths = useMemo(() => orderedPaths(displayProfile), [displayProfile]);
   const closedEdges = useMemo(() => pathEdges(paths.filter((path) => path.closed)), [paths]);
@@ -2167,6 +2221,9 @@ export function SketchWorkspace({
         : null;
     const hoverPoint = event.shiftKey && drawingOrigin && point ? constrainDrawing(drawingOrigin, point) : point;
     setHover(hoverPoint);
+    // A click on a point is never quite still: the point stays where it is until the pointer has clearly moved (#1801).
+    const startsPointDrag = pointerAction?.kind === "move-point" && !pointerAction.dragging;
+    if (startsPointDrag && !pointDragStarted(pointerAction.press, { x: event.clientX, y: event.clientY })) return;
     if (point && pointerAction) {
       // Shift held while a point, a line or a selection is being dragged keeps the
       // move on one axis, as on the workplane. Pressing it only starts a drag
@@ -2196,6 +2253,7 @@ export function SketchWorkspace({
       setPointerAction({
         ...pointerAction,
         current,
+        ...(startsPointDrag ? { dragging: true } : {}),
         ...(pointerAction.kind === "resize-selection" ? { proportional: event.shiftKey } : {}),
         ...(pointerAction.kind === "rotate-image" || pointerAction.kind === "rotate-selection" ? { snap: event.shiftKey } : {}),
       } as PointerAction);
@@ -2399,6 +2457,135 @@ export function SketchWorkspace({
     return true;
   };
 
+  /**
+   * Moves what the arrow keys move by dx/dz: a clicked handle first (#347), else an image, else the
+   * selected points. Says whether there is anything to move; with `apply` false it only says so.
+   * The move is drawn here and added to the run of presses (#1930); `handOverKeyNudge` gives the
+   * run to the editor once the keys rest.
+   */
+  const nudgeSketchSelection = (dx: number, dz: number, apply = true): boolean => {
+    const run = keyNudgeRef.current;
+    // A clicked handle goes first (#347): it moves alone, a smooth point's other handle with it.
+    const handlePoint = selectedHandle ? profile.points.find((point) => point.id === selectedHandle.pointId) : undefined;
+    const handleAt = handlePoint && selectedHandle ? (selectedHandle.handle === "in" ? handlePoint.handleIn : handlePoint.handleOut) : undefined;
+    if (selectedHandle && handleAt) {
+      if (!apply) return true;
+      const from = run?.kind === "handle" && run.pointId === selectedHandle.pointId && run.handle === selectedHandle.handle ? run.at : handleAt;
+      const moved = { x: clamp(from.x + dx, -reach.halfWidth, reach.halfWidth), z: clamp(from.z + dz, -reach.halfDepth, reach.halfDepth) };
+      if (moved.x === from.x && moved.z === from.z) return true;
+      setKeyNudge({ kind: "handle", pointId: selectedHandle.pointId, handle: selectedHandle.handle, at: moved });
+      return true;
+    }
+    if (selected?.kind === "image") {
+      const image = (profile.images ?? []).find((entry) => entry.id === selected.id);
+      if (!image || image.locked) return false;
+      if (!apply) return true;
+      const from = run?.kind === "image" && run.imageId === image.id ? run.at : { x: image.x, z: image.z };
+      setKeyNudge({
+        kind: "image",
+        imageId: image.id,
+        at: { x: clamp(from.x + dx, -reach.halfWidth, reach.halfWidth), z: clamp(from.z + dz, -reach.halfDepth, reach.halfDepth) },
+      });
+      return true;
+    }
+    const moving = new Set(sketchSelectionMovePointIds(profile, selected));
+    const startPoints = profile.points.filter((point) => moving.has(point.id));
+    if (!startPoints.length) return false;
+    if (!apply) return true;
+    // The run keeps the points as they were when it began and adds the steps up, held at the edge of the plate.
+    const sameRun = run?.kind === "points"
+      && run.startPoints.length === startPoints.length
+      && run.startPoints.every((point) => moving.has(point.id));
+    const base = sameRun ? run : { kind: "points" as const, startPoints, dx: 0, dz: 0 };
+    const allowed = clampNudge(base.startPoints, base.dx + dx, base.dz + dz, reach.halfWidth, reach.halfDepth);
+    if (allowed.dx === base.dx && allowed.dz === base.dz) return true;
+    setKeyNudge({ kind: "points", startPoints: base.startPoints, dx: allowed.dx, dz: allowed.dz });
+    return true;
+  };
+
+  /** Gives the arrow keys' run to the editor as one move; a run of runs is still one step of the history (#370). */
+  const handOverKeyNudge = () => {
+    const run = keyNudgeRef.current;
+    if (!run) return;
+    keyNudgeRef.current = null;
+    if (run.kind === "points") {
+      if (run.dx !== 0 || run.dz !== 0) {
+        onTransformPoints(translateSketchPoints(run.startPoints, run.dx, run.dz), t("sketch.shapeMoved"), `points:${run.startPoints.map((point) => point.id).join(",")}`);
+      }
+    } else if (run.kind === "handle") {
+      onMoveHandle(run.pointId, run.handle, run.at, `handle:${run.pointId}:${run.handle}`);
+    } else {
+      onUpdateImage(run.imageId, { x: run.at.x, z: run.at.z }, t("sketch.imageMoved"), `image:${run.imageId}`);
+    }
+    // In the same drawing as the editor's new sketch, so nothing jumps back for a moment.
+    setKeyNudgeState(null);
+  };
+  const handOverKeyNudgeRef = useRef(handOverKeyNudge);
+  handOverKeyNudgeRef.current = handOverKeyNudge;
+  const keyNudgeTimerRef = useRef<number | null>(null);
+  const arrowKeysDownRef = useRef(new Set<string>());
+  useEffect(() => {
+    const stopTimer = () => {
+      if (keyNudgeTimerRef.current !== null) window.clearTimeout(keyNudgeTimerRef.current);
+      keyNudgeTimerRef.current = null;
+    };
+    // At once and drawn before anything else reads the sketch: another key (Undo, Delete, Escape), a
+    // click, or the window losing focus.
+    const handOverNow = () => {
+      stopTimer();
+      if (!keyNudgeRef.current) return;
+      flushSync(() => handOverKeyNudgeRef.current());
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (ARROW_KEYS.has(event.key)) {
+        arrowKeysDownRef.current.add(event.key);
+        stopTimer();
+        return;
+      }
+      // Shift and Alt only change the step of the next press.
+      if (event.key === "Shift" || event.key === "Alt") return;
+      if (!keyNudgeRef.current) return;
+      handOverNow();
+      // The handover drew the editor again and its key handlers were set anew, and a key already on its
+      // way does not reach those: Delete or Escape right after the arrows would be lost. It is sent once
+      // more, where it was going. Typing into a field goes on as it is.
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+      event.stopImmediatePropagation();
+      const again = new KeyboardEvent("keydown", event);
+      (target ?? window).dispatchEvent(again);
+      if (again.defaultPrevented) event.preventDefault();
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (!ARROW_KEYS.has(event.key)) return;
+      arrowKeysDownRef.current.delete(event.key);
+      if (arrowKeysDownRef.current.size || !keyNudgeRef.current) return;
+      stopTimer();
+      keyNudgeTimerRef.current = window.setTimeout(handOverNow, KEY_NUDGE_HANDOVER_MS);
+    };
+    const onBlur = () => {
+      arrowKeysDownRef.current.clear();
+      handOverNow();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("pointerdown", handOverNow, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("pointerdown", handOverNow, true);
+      window.removeEventListener("blur", onBlur);
+      stopTimer();
+      // Leaving the sketch with a run still drawn here keeps it.
+      handOverKeyNudgeRef.current();
+    };
+  }, []);
+  // Another selection or tool ends the run first.
+  useEffect(() => {
+    handOverKeyNudgeRef.current();
+  }, [selected, selectedHandle, tool]);
+
   useEffect(() => {
     const syncShiftConstrain = (shiftKey: boolean) => {
       if (!lastPointerRef.current) return;
@@ -2416,7 +2603,9 @@ export function SketchWorkspace({
         const lockOrigin = pointerAction.kind === "move-point" || pointerAction.kind === "move-selection" || pointerAction.kind === "bezier"
           ? pointerAction.origin
           : null;
-        if (lockOrigin) {
+        // A point pressed but not yet dragged stays where it is under Shift too (#1801).
+        const pressedOnly = pointerAction.kind === "move-point" && !pointerAction.dragging;
+        if (lockOrigin && !pressedOnly) {
           setPointerAction((prev) => prev ? { ...prev, current: shiftKey ? constrainToAxis(lockOrigin, point) : point } : null);
         } else if (pointerAction.kind === "resize-selection") {
           setPointerAction((prev) => prev?.kind === "resize-selection" ? { ...prev, proportional: shiftKey } : prev);
@@ -2498,35 +2687,10 @@ export function SketchWorkspace({
         const step = keyboardNudgeStep(snap, event.shiftKey, keyboardNudgeCoarseFactor(workspace), event.altKey);
         const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
         const dz = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
-        // A clicked handle goes first (#347): it moves alone, a smooth point's other handle with it.
-        const handlePoint = selectedHandle ? profile.points.find((point) => point.id === selectedHandle.pointId) : undefined;
-        const handleAt = handlePoint && selectedHandle ? (selectedHandle.handle === "in" ? handlePoint.handleIn : handlePoint.handleOut) : undefined;
-        if (selectedHandle && handleAt) {
-          event.preventDefault();
-          const moved = { x: clamp(handleAt.x + dx, -reach.halfWidth, reach.halfWidth), z: clamp(handleAt.z + dz, -reach.halfDepth, reach.halfDepth) };
-          if (moved.x === handleAt.x && moved.z === handleAt.z) return;
-          // A run of arrow presses is one step of the history, as for points (#370).
-          onMoveHandle(selectedHandle.pointId, selectedHandle.handle, moved, `handle:${selectedHandle.pointId}:${selectedHandle.handle}`);
-          return;
-        }
-        if (selected?.kind === "image") {
-          const image = (profile.images ?? []).find((entry) => entry.id === selected.id);
-          if (!image || image.locked) return;
-          event.preventDefault();
-          onUpdateImage(image.id, {
-            x: clamp(image.x + dx, -reach.halfWidth, reach.halfWidth),
-            z: clamp(image.z + dz, -reach.halfDepth, reach.halfDepth),
-          }, t("sketch.imageMoved"), `image:${image.id}`);
-          return;
-        }
-        const moving = new Set(sketchSelectionMovePointIds(profile, selected));
-        const startPoints = profile.points.filter((point) => moving.has(point.id));
-        if (!startPoints.length) return;
+        if (!nudgeSketchSelection(dx, dz, false)) return;
         event.preventDefault();
-        const allowed = clampNudge(startPoints, dx, dz, reach.halfWidth, reach.halfDepth);
-        if (allowed.dx === 0 && allowed.dz === 0) return;
-        // A run of arrow presses is one step of the history (#370).
-        onTransformPoints(translateSketchPoints(startPoints, allowed.dx, allowed.dz), t("sketch.shapeMoved"), `points:${startPoints.map((point) => point.id).join(",")}`);
+        // Drawn here at once; the editor gets the whole run when the keys rest (#1930).
+        nudgeSketchSelection(dx, dz);
       }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
@@ -2587,6 +2751,14 @@ export function SketchWorkspace({
   const hoverPointRadius = 5 * screenUnit;
   const handleSize = 12 * screenUnit;
   const handleRadius = 2 * screenUnit;
+  // Where the point under the pointer lies, and where a dragged point is right now (Discussion #1801). Hidden with
+  // the other measurements, and while anything else is being dragged.
+  const coordinateLabelPointId = !showMeasurements
+    ? null
+    : pointerAction?.kind === "move-point"
+    ? pointerAction.pointId
+    : pointerAction ? null : hoveredPointId;
+  const coordinateLabelPoint = coordinateLabelPointId ? displayProfile.points.find((point) => point.id === coordinateLabelPointId) ?? null : null;
   // A turned picture (#216): its frame is the turned rectangle, the box round it only places the labels.
   const selectedImageCorners = selectedImage ? imageCorners(selectedImage) : null;
   const selectedImageBounds = selectedImageCorners ? {
@@ -3437,9 +3609,11 @@ export function SketchWorkspace({
                       return;
                     }
                     inspectOffsetShape(selected.pointIds, selected.segmentIds);
-                    const startPoints = selected.pointIds.map((id) => profile.points.find((entry) => entry.id === id)).filter((entry): entry is SketchPoint => Boolean(entry)).map((entry) => ({ ...entry, handleIn: entry.handleIn ? { ...entry.handleIn } : undefined, handleOut: entry.handleOut ? { ...entry.handleOut } : undefined }));
+                    const moving = new Set(sketchSelectionMovePointIds(profile, selected));
+                    const startPoints = profile.points.filter((entry) => moving.has(entry.id)).map((entry) => ({ ...entry, handleIn: entry.handleIn ? { ...entry.handleIn } : undefined, handleOut: entry.handleOut ? { ...entry.handleOut } : undefined }));
                     beginEntityDrag(event, { kind: "move-selection", pointerId: event.pointerId, origin: point, current: point, startPoints,
                       ...(underneath ? { clickSegment: { id: underneath, clientX: event.clientX, clientY: event.clientY } } : {}) });
+
                   }}
                 />
                 {([
@@ -3682,6 +3856,8 @@ export function SketchWorkspace({
                 cx={point.x}
                 cy={point.z}
                 r={pointRadius}
+                onPointerEnter={() => setHoveredPointId(point.id)}
+                onPointerLeave={() => setHoveredPointId((current) => current === point.id ? null : current)}
                 onDoubleClick={() => {
                   // A double click on the last point ends the chain (#520).
                   if (onFinishLine && activePointId === point.id && isChainDrawingTool(tool)) onFinishLine();
@@ -3704,7 +3880,7 @@ export function SketchWorkspace({
                     const owner = profile.offsets?.find(offset => offset.pointIds.includes(point.id));
                     if (owner && onCommitOffsetProfile) { onSelectMany(owner.pointIds, owner.segmentIds, []); return; }
                     onPointPress(point.id);
-                    beginEntityDrag(event, { kind: "move-point", pointerId: event.pointerId, pointId: point.id, origin: { x: point.x, z: point.z }, current: { x: point.x, z: point.z } });
+                    beginEntityDrag(event, { kind: "move-point", pointerId: event.pointerId, pointId: point.id, origin: { x: point.x, z: point.z }, current: { x: point.x, z: point.z }, press: { x: event.clientX, y: event.clientY }, dragging: false });
                   } else if (event.button === 0 && tool === "bezier" && activePointId !== point.id) {
                     // A Bezier side may start or end on a point that is already there, and pulling handles out of it works as on empty plane (#635).
                     beginEntityDrag(event, { kind: "bezier", pointerId: event.pointerId, origin: { x: point.x, z: point.z }, current: { x: point.x, z: point.z } });
@@ -3715,6 +3891,17 @@ export function SketchWorkspace({
               />
             ))}
           </g>
+          {coordinateLabelPoint ? (() => {
+            const label = pointCoordinateLabel(coordinateLabelPoint, { x: t("sketch.selectionX"), y: t("sketch.selectionY") }, (value) => formatDimension(value, workspace.accuracy));
+            const pill = dimensionPillSize(label, screenUnit, 18);
+            const spot = pointCoordinateLabelSpot(coordinateLabelPoint, pill, 8 * screenUnit);
+            return (
+              <g className="sketch-segment-dimensions preview sketch-point-coordinates" pointerEvents="none" transform={`translate(${spot.x} ${spot.z})`}>
+                <rect x={-pill.width / 2} y={-pill.height / 2} width={pill.width} height={pill.height} rx={pill.radius} />
+                <text y={5 * screenUnit} fontSize={13 * screenUnit}>{label}</text>
+              </g>
+            );
+          })() : null}
           {selectedImage && selectedImageBounds && tool === "select" ? (
             <g className="sketch-image-selection">
               <polygon

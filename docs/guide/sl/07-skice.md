@@ -15,6 +15,8 @@ Zgoraj preklopi z {{ui:editor.modeGeometry}} na {{ui:editor.modeSketch}}. V skup
 
 Potem urejevalnik pokaže list z mrežo. To je tvoja risalna površina.
 
+Skica leži na delovni ravnini. Če želiš risati na ploskev telesa, na primer za obris, ki naj se začne višje, najprej s [[W]] postavi delovno ravnino na to ploskev (glej [Pogled in delovna ravnina](chapter:pogled-in-delovna-ravnina)), nato začni skico.
+
 ## Risanje
 
 Orodna vrstica skicirnega načina je razdeljena v področja:
@@ -27,13 +29,13 @@ Orodna vrstica skicirnega načina je razdeljena v področja:
 - **Odložišče:** {{ui:editor.tool.copy}}, {{ui:editor.tool.paste}}, {{ui:editor.tool.duplicate}} in {{ui:editor.tool.delete}} delujejo na izbrane točke, črte in slike, kot v 3D-urejevalniku; [[Ctrl]]+[[X]] izreže. Prilepljeno in podvojeno pristane z 10 mm razmika ob originalu, na prostem mestu, kjer se ne dotika nobene obstoječe črte, tako da se nikoli ne poveže z obstoječim. Ostane izbrano, tako da ga lahko takoj povlečeš na mesto.
 - **Zgodovina:** {{ui:sketch.undo}} in {{ui:sketch.redo}}.
 - **{{ui:sketch.viewControls}}:** {{ui:editor.tool.note}} (ali [[N]]) postavi opombo na skico, kot v 3D urejevalniku: naslednji klik jo postavi kamor koli, tudi na črto. Povleci buciko, da jo premakneš; klik na buciko zloži kartico. Opombe skice pripadajo njenemu telesu: v 3D pogledu sedijo na vrhu telesa, narejenega s funkcijo {{ui:sketch.extrude}} ali {{ui:sketch.sweep}}, in na narisanem profilu telesa, narejenega s funkcijo {{ui:sketch.revolve}}, in se premikajo z njim. Ko skico znova odpreš, pokaže vse opombe telesa, tudi tiste, postavljene v 3D. {{ui:sketch.undo}} prekliče opombo tako kot črto, {{ui:sketch.cancel}} pa zavrže spremembe opomb. Več v poglavju Merjenje in opombe.
-- **Pogled:** Premikaš ga s srednjim gumbom miške ali s [[Shift]] oziroma [[Ctrl]] in desnim gumbom miške, kot v 3D-urejevalniku. Ko ni nič izbrano, ga premikajo tudi [[Ctrl]] in puščice: za desetino slike na pritisk, s [[Shift]] povrhu za polovico; skica se premakne v smer puščice. [[Home]] spet postavi celotno skico v sliko, [[F]] se približa izboru (brez izbora celotni skici), [[+]] in [[−]] pa približata in oddaljita, kot v 3D-urejevalniku. Ko ni nič izbrano, dvoklik na prazno mesto premakne pogled tako, da pride to mesto na sredino, kot v 3D-urejevalniku; {{ui:workspace.doubleClickCentersView}} v nastavitvah to izklopi. {{ui:camera.tapeTools}} v vrstici skice meri razdaljo med dvema točkama. Poleg tega skica pokaže mere, takoj ko kaj klikneš: pri črti njeno dolžino, pri točki dolžine črt, ki se tam srečajo. Gumb {{ui:sketch.showMeasurements}} v vrstici skice te mere skrije in spet pokaže, če motijo, na primer pri oblikovanju krivulj; merilni trak še naprej deluje. Pri ravni črti lahko klikneš mehurček mere in vpišeš dolžino v milimetrih; [[Enter]] jo sprejme, [[Esc]] prekine. Črta obdrži svojo smer, njena začetna točka ostane in črte na drugem koncu gredo zraven. Če je označena končna točka, se premakne ta. Z [[Alt]]+[[Enter]] črta raste na obe strani in obdrži svojo sredino. Pri krivuljah mehurček kaže samo dolžino.
+- **Pogled:** Premikaš ga s srednjim gumbom miške ali s [[Shift]] oziroma [[Ctrl]] in desnim gumbom miške, kot v 3D-urejevalniku. Ko ni nič izbrano, ga premikajo tudi [[Ctrl]] in puščice: za desetino slike na pritisk, s [[Shift]] povrhu za polovico; skica se premakne v smer puščice. [[Home]] spet postavi celotno skico v sliko, [[F]] se približa izboru (brez izbora celotni skici), [[+]] in [[−]] pa približata in oddaljita, kot v 3D-urejevalniku. Ko ni nič izbrano, dvoklik na prazno mesto premakne pogled tako, da pride to mesto na sredino, kot v 3D-urejevalniku; {{ui:workspace.doubleClickCentersView}} v nastavitvah to izklopi. {{ui:camera.tapeTools}} v vrstici skice meri razdaljo med dvema točkama. Poleg tega skica pokaže mere, takoj ko kaj klikneš: pri črti njeno dolžino, pri točki dolžine črt, ki se tam srečajo. Gumb {{ui:sketch.showMeasurements}} v vrstici skice te mere skrije in spet pokaže, če motijo, na primer pri oblikovanju krivulj; merilni trak še naprej deluje. Ko kazalec miruje na točki, majhna oznaka ob njej pokaže X in Y točke, v mm od izhodišča skice, in ji sledi med vlečenjem; gumb skrije tudi to oznako. Pri ravni črti lahko klikneš mehurček mere in vpišeš dolžino v milimetrih; [[Enter]] jo sprejme, [[Esc]] prekine. Črta obdrži svojo smer, njena začetna točka ostane in črte na drugem koncu gredo zraven. Če je označena končna točka, se premakne ta. Z [[Alt]]+[[Enter]] črta raste na obe strani in obdrži svojo sredino. Pri krivuljah mehurček kaže samo dolžino.
 
 Telo nastane samo iz **sklenjenega** obrisa.
 
 ![Obris v obliki črke L. Ob izbranem ogliščku zgoraj levo stojita dolžini obeh črt v milimetrih in kot med njima v stopinjah.](shot:sketch-outline)
 
-Tipke [[1]] do [[4]] izberejo orodja za risanje v vrstnem redu vrstice: {{ui:sketch.line}}, {{ui:sketch.bezier}}, {{ui:sketch.smooth}} in {{ui:sketch.refine}}. Delujejo, dokler se ne riše črta; med risanjem črte so številke njena dolžina (glej spodaj).
+Tipke [[1]] do [[4]] izberejo orodja za risanje v vrstnem redu vrstice: {{ui:sketch.line}}, {{ui:sketch.bezier}}, {{ui:sketch.smooth}} in {{ui:sketch.refine}}. Delujejo, dokler se ne riše črta; med risanjem črte so številke njena dolžina (glej spodaj). Z orodjem {{ui:sketch.select}} in izbranimi črtami ali točkami iste tipke te namesto tega spremenijo: [[1]] naredi črte ravne in točke ogliščne, [[2]] spremeni črte v krivulje, [[3]] pa naredi točke gladke. Če ni nič izbrano, izberejo orodje kot prej.
 [[5]] izbere {{ui:sketch.freehand}}.
 
 ## Črte po meri
@@ -179,7 +181,7 @@ Drevo ob hiši, figura pred nemirnim ozadjem – kjer nobena barva ne loči obli
 | Tipka | Učinek |
 | --- | --- |
 | [[Esc]] | odloži orodje za opombe; sicer odloži orodje (nazaj na {{ui:sketch.select}}), nato prekliči izbor |
-| [[Del]] | izbriši izbrani element |
+| [[Delete]] | izbriši izbrani element |
 | [[Ctrl]]+[[C]] | kopiraj izbor |
 | [[Ctrl]]+[[X]] | izreži izbor |
 | [[Ctrl]]+[[V]] | prilepi |

@@ -1,6 +1,7 @@
 "use client";
 import { ProjectVariablesContext } from "./ProjectVariablesContext";
-import { PARAMETER_FIELDS, supportsParameters, parameterValue } from "@/lib/projectVariables";
+import {SketchElevationControl} from "./SketchElevationControl";
+import { PARAMETER_FIELDS, supportsParameterField, parameterValue } from "@/lib/projectVariables";
 import { LoftSvgControls, type LoftSvgSection } from "./LoftSvgControls";
 import { LoftSectionStack, type LoftSectionRow } from "./LoftSectionStack";
 import { addLoftSection, reorderLoftSections } from "@/lib/loftSectionStack";
@@ -10,7 +11,7 @@ import { GuideHelpLink } from "@/components/GuideHelpLink";
 import { SnapGridMenuItems } from "@/components/workplane/SnapGridMenu";
 import { guideChapterForShape, guideSectionForShape } from "@/lib/guideLinks";
 import { useInspectorCard } from "@/lib/inspectorCards";
-import { Scissors, AlignCenter, Cone, ChevronDown, ChevronUp, Cylinder, Eraser, Eye, EyeOff, FolderOpen, Grid3x3, ImageUp, Lasso, Layers, Link2, Lock, Minus, Move3d, MousePointerClick, Pencil, Plus, RefreshCw, RotateCcw, Rotate3d, Ruler, Shield, ShieldCheck, Shrink, SlidersHorizontal, Spline, Split, Tags, Trash2, TrendingDown, Unlock, Waves } from "lucide-react";
+import { GitBranch, Scissors, AlignCenter, Cone, ChevronDown, ChevronUp, Cylinder, Eraser, Eye, EyeOff, FolderOpen, Grid3x3, ImageUp, Lasso, Layers, Link2, Lock, Minus, Move3d, MousePointerClick, Pencil, Plus, RefreshCw, RotateCcw, Rotate3d, Ruler, Shield, ShieldCheck, Shrink, SlidersHorizontal, Spline, Split, Tags, Trash2, TrendingDown, Unlock, Waves } from "lucide-react";
 import { holdsShapeLock } from "@/lib/shapeLock";
 import { createPortal } from "react-dom";
 import { boltPinDiameter, boltSplitFits } from "@/lib/boltSplit";
@@ -195,7 +196,7 @@ import { displayShapeName, makeShapeFromAsset, renamedShapeName, shapeAssetDefau
 import { cylinderToEllipsePatch } from "@/lib/cylinderToEllipse";
 import { normalizeSurfaceTexture, SURFACE_TEXTURE_AXES, SURFACE_TEXTURE_CAP_EDGES, SURFACE_TEXTURE_CAP_STYLES, SURFACE_TEXTURE_CARBON_WEAVES, SURFACE_TEXTURE_BARK_TYPES, SURFACE_TEXTURE_BRICK_BONDS, SURFACE_TEXTURE_BUMP_GRIDS, SURFACE_TEXTURE_CRACK_STARTS, SURFACE_TEXTURE_CRACK_STYLES, SURFACE_TEXTURE_DEFAULTS, SURFACE_TEXTURE_DETAILS, SURFACE_TEXTURE_DIRECTIONS, SURFACE_TEXTURE_IMAGES, SURFACE_TEXTURE_LIMITS, SURFACE_TEXTURE_MASK_MODES, SURFACE_TEXTURE_PROFILES, SURFACE_TEXTURE_PROJECTIONS, SURFACE_TEXTURE_STARTERS, SURFACE_TEXTURE_TILINGS, SURFACE_TEXTURE_TIMBER_BRACINGS, SURFACE_TEXTURE_WOOD_CUTS, SURFACE_TEXTURE_WOOD_TYPES, surfaceTextureImageTile, type SurfaceTextureFace, type SurfaceTextureMaskMode, type SurfaceTexturePattern, type SurfaceTextureRegion, type SurfaceTextureSettings } from "@/lib/surfaceTexture";
 import { SURFACE_TEXTURE_OWN_IMAGE_SIZE, surfaceTextureOwnImage } from "@/lib/surfaceTextureImages";
-import { drawingGrey, drawingOutlines, inTwoTones, SURFACE_IMAGE_OUTLINE_RASTER } from "@/lib/surfaceImageOutline";
+import { ownImageOutline, SURFACE_IMAGE_OUTLINE_RASTER } from "@/lib/surfaceImageOutline";
 import { BARK_STARTS, WOOD_RINGS } from "@/lib/surfaceTextureWood";
 import { offersSurfaceTextureMask, SURFACE_TEXTURE_LABELS, surfacePatternColor, surfacePatternLabel, surfacePatternPartOf, surfacePatternPartWay, surfaceTextureEntry, surfaceTextureLayerPlaced } from "@/lib/surfaceTextureShape";
 import { LIMITS as VASE_LIMITS, MATERIALS as VASE_MATERIALS, type VaseChoiceKey, type VaseNumberKey } from "@/lib/vase/vase-geometry.mjs";
@@ -213,11 +214,13 @@ import { MAX_WEDGE_ANGLE, MIN_WEDGE_ANGLE, wedgeAngle, wedgeHeightForAngle } fro
 import { MAX_PORT_CLEARANCE, maxPortCorner, normalizePortClearance, normalizePortCorner, PORT_PRESET_ORDER, PORT_PRESETS, portPresetFor, portPresetSize, type PortPreset } from "@/lib/portGeometry";
 import { MAX_DOVETAIL_CLEARANCE, maxDovetailNeckWidth, normalizeDovetailClearance, normalizeDovetailNeckWidth } from "@/lib/dovetailGeometry";
 import { DEFAULT_SKETCH_STROKE, MAX_SKETCH_STROKE_WIDTH, MIN_SKETCH_STROKE_EDGE, MIN_SKETCH_STROKE_WIDTH, normalizeSketchStroke, SKETCH_STROKE_JOINS } from "@/lib/sketchStroke";
-import { MAX_EDGED_TEXT_LENGTH, MAX_TEXT_EDGE, MIN_TEXT_EDGE, normalizeTextEdge, textAllowsEdge, textHasEdge } from "@/lib/textEdge";
+import { isTextEdgeSide, MAX_EDGED_TEXT_LENGTH, MAX_TEXT_EDGE, maxTextEdgeSize, MIN_TEXT_EDGE, normalizeTextEdge, SLOW_BOTH_EDGES_LENGTH, TEXT_EDGE_SIDES, textAllowsEdge, textEdgeBuildsSlowly, textEdgeSide, textHasEdge } from "@/lib/textEdge";
 import { wheelBaseStep, wheelNextValue, wheelTurn } from "@/lib/wheelValueStep";
-import { textHasFill } from "@/lib/textFill";
+import { withProportionsKeptOnce } from "@/lib/keepProportions";
+import { textEdgeFootFloats, textHasFill } from "@/lib/textFill";
 import { TEXT_FILL_CHOICES, textFillChoice, textLineSettingsInView, textStrokeForChoice, textStrokeWider, type TextFillChoice } from "@/lib/textFillChoice";
-import { MAX_TEXT_LAYERS, MAX_TEXT_LAYER_GROW, MIN_TEXT_LAYER_HEIGHT, nameTagKeyringAlongLimit, namesFromList, type NameTagKeyring, type TextLayer } from "@/lib/textLayers";
+import { MAX_TEXT_LAYERS, MAX_TEXT_LAYER_GROW, MIN_TEXT_LAYER_HEIGHT, nameTagKeyringAlongLimit, namesFromList, type NameTagKeyring, type TagFlush, type TextLayer } from "@/lib/textLayers";
+import { DEFAULT_FLUSH_DEPTH, flushDepthFor, MAX_FLUSH_DEPTH, MIN_FLUSH_DEPTH, MIN_FLUSH_FLOOR } from "@/lib/flushLayers";
 import { iconKeyringAlongLimit } from "@/lib/sketchKeyring";
 import { DEFAULT_KEYRING_DIAMETER, curvedRadiusPatch, MAX_TEXT_LETTER_WIDTH, MAX_TEXT_SPACING, MIN_KEYRING_DIAMETER, MIN_TEXT_LETTER_WIDTH, MIN_TEXT_SPACING, TEXT_KEYRING_SIDES } from "@/lib/textGeometry";
 import { DEFAULT_TEXT_BLOCK_GAP, MAX_TEXT_BLOCK_GAP, MAX_TEXT_BLOCK_LINES, MAX_TEXT_BLOCK_STEP, MIN_TEXT_BLOCK_STEP, TEXT_BLOCK_ALIGNS, textBlockLines, type TextBlockAlign, type TextBlockOptions } from "@/lib/textBlock";
@@ -250,8 +253,9 @@ import {
   MAX_GRIDFINITY_LIP_CHAMFER,
   MAX_GRIDFINITY_PADDING,
   MAX_GRIDFINITY_SWALLOWTAIL_CLEARANCE,
+  DEFAULT_GRIDFINITY_CLIP_COUNT,
+  MAX_GRIDFINITY_CLIP_COUNT,
   MAX_GRIDFINITY_TRAY_HEIGHT,
-  MAX_GRIDFINITY_TRAY_SIZE,
   MIN_GRIDFINITY_COMPARTMENT_LABEL_LENGTH,
   MIN_GRIDFINITY_COMPARTMENT_LABEL_MM,
   MIN_GRIDFINITY_DIVIDER_HEIGHT,
@@ -271,9 +275,13 @@ import {
   gridfinityCompartmentCount,
   gridfinityCompartmentCountPatch,
   gridfinityCompartmentLabel,
+  gridfinityCompartmentLabelCell,
   gridfinityCompartmentLabelLeftOut,
   gridfinityCompartmentLabelMaxWidth,
   gridfinityCompartmentMax,
+  gridfinityCompartmentParts,
+  gridfinityCompartmentPartsMax,
+  gridfinityCompartmentSplitPatch,
   gridfinityCompartments,
   gridfinityBinCornerFits,
   gridfinityBinCornerRadius,
@@ -302,6 +310,9 @@ import {
   gridfinityLabelWidth,
   gridfinityLipChamfer,
   gridfinityMaxUnits,
+  gridfinityBedReach,
+  gridfinityTrayMax,
+  type GridfinityBed,
   gridfinityOpenFits,
   gridfinityOpening,
   gridfinityOpeningCornerSize,
@@ -320,13 +331,14 @@ import {
   gridfinityOverhangPatch,
   gridfinityOverhangSupportSides,
   gridfinityPlan,
-  gridfinityPlateSplit,
+  gridfinityPlateSplit, gridfinityPlateSplitsWithClips,
   gridfinityScoopFits,
   gridfinityScoopMaxRadius,
   gridfinityScoopRadius,
   gridfinityScoopsLeftOut,
   gridfinityShapePatch,
   gridfinitySwallowtailClearance,
+  gridfinityClipCount,
   gridfinityWallFits,
   gridfinityWallMaxThickness,
   gridfinityWallSolid,
@@ -379,12 +391,12 @@ import {
   normalizeFlatSpringWire,
   normalizeSpringForm,
 } from "@/lib/flatSpringGeometry";
-import { regularPolygonAspect } from "@/lib/regularPolygonFootprint";
+import { polygonFlatAngle, regularPolygonAspect } from "@/lib/regularPolygonFootprint";
 import { maxPolygonCornerRadius, normalizePolygonCornerRadius } from "@/lib/roundedPolygonGeometry";
 import { DEFAULT_TAPER_DIMENSION_MAX, MAX_HIGH_RESOLUTION_SIDES, MAX_HIGH_RESOLUTION_STEPS, POSITION_TYPED_LIMIT, RULER_MAX_LENGTH, customSnapGridLabel, positionReach, shapeDimensionLimit, snapGridStep } from "@/lib/workplaneSettings";
 import { printerPresetById } from "@/lib/printBed";
 import { maxSideDrop, narrowCrossWidth, narrowEndWidth, normalizeNarrowStart, normalizeSlopeCurve, normalizeSlopeFrom, normalizeSlopeSide, shapeSupportsNarrow, shapeSupportsSlope, SLOPE_MIN_END, slopeAlongWidth, slopeEndHeight, slopeSidesFor } from "@/lib/slopeAlong";
-import type { BentTubeInnerProfile, BentTubeProfile, CustomSnapGrid, GearType, GridfinityCompartmentLabel, GridfinityType, GridSize, MeasurementAccuracy, ShapeCustomization, SketchProfile, SketchStroke, SketchStrokeAlign, SketchStrokeJoin, ThreadDrive, ThreadHead, ThreadProfile, ThreadRole, WorkplaneShape, WorkplaneWorkspaceSettings } from "@/types/layerling";
+import type { BentTubeInnerProfile, BentTubeProfile, CustomSnapGrid, GearType, GridfinityCompartmentLabel, GridfinityType, GridSize, MeasurementAccuracy, ShapeCustomization, SketchProfile, SketchStroke, SketchStrokeAlign, SketchStrokeJoin, TextEdgeSide, ThreadDrive, ThreadHead, ThreadProfile, ThreadRole, WorkplaneShape, WorkplaneWorkspaceSettings } from "@/types/layerling";
 import { selectWholeValue } from "@/lib/numberField";
 import { formulaMatchesValue, formulaToRemember, withFieldFormula, type FieldFormulas } from "@/lib/fieldFormulas";
 import { useKeptColors, useRecentColors } from "@/lib/recentColors";
@@ -571,6 +583,8 @@ type TogglePropertyConfig = {
   area?: GridfinityWall;
   /** A switch that belongs to the slider just above it: drawn a little in, with a small connecting line. */
   sub?: boolean;
+  /** A line under the switch saying what it does, as under a slider (#215). */
+  hint?: string;
   onChange: (value: boolean) => void;
 };
 
@@ -676,7 +690,7 @@ function scrollingAncestor(element: HTMLElement): HTMLElement | null {
 }
 
 export function propertyUsesLengthUnit(key: string) {
-  return ["textLineWidth", "textBlockGap", "textEdgeSize", "letterSize", "iconWidth", "keyringDiameter", "keyringAlong", "positionX", "positionY", "positionZ", "pivotX", "pivotY", "pivotZ", "radius", "length", "width", "height", "bevel", "topRadius", "baseRadius", "curvedConeTop", "thickness", "outerDiameter", "innerDiameter", "textRadius", "extrudeTopOffsetX", "extrudeTopOffsetZ", "toothSize", "toothWidth", "gearBacklash", "centerHole", "slotSmallEnd", "slotCentreDistance", "torusTube", "sketchLineWidth", "sketchCuttingEdge", "topLength", "topWidth", "bottomLength", "bottomWidth", "diameter", "pitch", "clearance", "axialClearance", "boltClearance", "threadDepth", "threadCoreDiameter", "threadLength", "headHeight", "headDiameter", "collarHeight", "collarDiameter", "driveSize", "driveDepth", "chamfer", "chamferBottom", "headChamfer", "wire", "starOuterSize", "starInnerSize", "starOuterFillet", "starInnerFillet", "heartTipFillet", "crescentThickness", "crescentTipFillet", "sectorEndRadius", "honeycombCellSize", "honeycombWallThickness", "honeycombFrameWidth", "cornerFillet", "topBottomFillet", "bentTubeSize", "bentTubeInner", "bentTubeWall", "bentTubeSegmentLength", "bentTubeBendRadius", "dovetailNeckWidth", "dovetailClearance", "screwBossHole", "screwBossHoleDepth", "screwBossDiameter", "screwBossGussetHeight", "screwBossGussetThickness", "screwBossReach", "snapFitThickness", "snapFitUndercut", "snapFitClearance", "snapFitFoot", "ribLength", "ribThickness", "ribFootThickness", "portClearance", "hingePinDiameter", "hingeLeafThickness", "hingeClearance", "hingeCornerRadius", "hingeScrewDiameter", "hingeScrewSpacing", "hingeScrewAcross", "hingeNutWidth", "hingeSnapGrip", "screwHoleShaft", "screwHoleHeadDepth", "screwHoleSlotLength", "screwHoleRecess", "screwHoleChamfer", "screwHoleLengthBelowHead", "knurlDepth", "knurlChamfer", "loftBottomWidth", "loftBottomDepth", "loftTopWidth", "loftTopDepth", "loftBottomCorner", "loftTopCorner", "loftOffsetX", "loftOffsetZ", "loftWall", "loftTopWall", "loftSectionHeight", "loftSectionWidth", "loftSectionDepth", "loftSectionCorner", "loftSectionOffsetX", "loftSectionOffsetZ", "gridfinityLabelBackLength", "gridfinityLabelBackOffset", "gridfinityLabelBackWidth", "gridfinityLabelCornerSize", "gridfinityLabelTextSize", "gridfinityLabelFrontLength", "gridfinityLabelFrontOffset", "gridfinityLabelFrontWidth", "gridfinityLabelLeftLength", "gridfinityLabelLeftOffset", "gridfinityLabelLeftWidth", "gridfinityLabelRightLength", "gridfinityLabelRightOffset", "gridfinityLabelRightWidth", "gridfinityScoopRadius", "gridfinityFloorHeight", "gridfinityLipChamfer", "gridfinityWallThickness", "gridfinityDrawerWidth", "gridfinityDrawerDepth", "gridfinityPaddingBack", "gridfinityPaddingFront", "gridfinityPaddingLeft", "gridfinityPaddingRight", "gridfinityOverhangBack", "gridfinityOverhangFront", "gridfinityOverhangLeft", "gridfinityOverhangRight", "gridfinityOverhangChamfer", "gridfinityCornerRadius", "gridfinityBinCornerRadius", "gridfinitySwallowtailClearance", "gridfinityDividerThickness", "gridfinityDividerHeight", "gridfinityDividerPositionX", "gridfinityDividerPositionZ", "gridfinityCompartmentLabelWidth", "gridfinityOpeningCornerSize", "gridfinityOpeningDepthBack", "gridfinityOpeningDepthFront", "gridfinityOpeningDepthLeft", "gridfinityOpeningDepthRight", "gridfinityOpeningWidthBack", "gridfinityOpeningWidthFront", "gridfinityOpeningWidthLeft", "gridfinityOpeningWidthRight", "gridfinityOpeningDistanceBack", "gridfinityOpeningDistanceFront", "gridfinityOpeningDistanceLeft", "gridfinityOpeningDistanceRight", "surfaceSpacing", "surfaceDepth", "surfaceFade", "surfaceCrackWidth", "surfaceCrackRecess", "surfaceTextSize", "surfaceCarbonCross", "surfaceBrickHeight", "surfaceBrickJoint", "surfaceTimberHeight", "surfaceTimberBeam", "surfaceStoneJoint", "surfaceTileGap", "surfaceRingWidth", "surfaceTileHeight", "vase.wall", "vase.bottom", "vase.ribDepth", "vase.stripeDepth", "vase.voronoiCell", "vase.voronoiGap", "vase.voronoiDepth", "vase.waveAmplitude", "vaseFloor.drainDiameter", "vaseFloor.floorSlope", "vaseFloor.footHeight", "vaseFloor.rubberFootDiameter", "vaseFloor.rubberFootDepth", "vaseFloor.cutoutSize", "vaseFloor.cutoutWeb", "vaseFloor.lampHole", "vaseFloor.puckDiameter", "vaseFloor.lampNotch", "vaseFloor.lampNotchHeight", "vaseFloor.reinforceDepth", "vaseFloor.slitWidth", "vaseFloor.lineWidth", "vasePrint.lineWidth", "vaseParts.legHeight", "vaseParts.legDiameter", "vaseParts.saucerHeight", "vaseParts.saucerGap", "vaseParts.saucerWall", "vaseParts.insertWall", "vaseParts.insertStandoff", "vaseParts.reservoirHeight", "vaseParts.frogHole", "vaseParts.tubeDiameter", "vaseParts.lidClearance", "vaseParts.lidThickness", "vaseParts.lidDepth", "vaseParts.lidHeight", "vaseParts.lidJoint", "vaseParts.threadPitch", "vaseParts.fitClearance"].includes(key);
+  return ["textLineWidth", "textBlockGap", "textEdgeSize", "letterSize", "flushDepth", "iconWidth", "keyringDiameter", "keyringAlong", "positionX", "positionY", "positionZ", "pivotX", "pivotY", "pivotZ", "radius", "length", "width", "height", "bevel", "topRadius", "baseRadius", "curvedConeTop", "thickness", "outerDiameter", "innerDiameter", "textRadius", "extrudeTopOffsetX", "extrudeTopOffsetZ", "toothSize", "toothWidth", "gearBacklash", "centerHole", "slotSmallEnd", "slotCentreDistance", "torusTube", "sketchLineWidth", "sketchCuttingEdge", "topLength", "topWidth", "bottomLength", "bottomWidth", "diameter", "pitch", "clearance", "axialClearance", "boltClearance", "threadDepth", "threadCoreDiameter", "threadLength", "headHeight", "headDiameter", "collarHeight", "collarDiameter", "driveSize", "driveDepth", "chamfer", "chamferBottom", "headChamfer", "wire", "starOuterSize", "starInnerSize", "starOuterFillet", "starInnerFillet", "heartTipFillet", "crescentThickness", "crescentTipFillet", "sectorEndRadius", "honeycombCellSize", "honeycombWallThickness", "honeycombFrameWidth", "cornerFillet", "topBottomFillet", "bentTubeSize", "bentTubeInner", "bentTubeWall", "bentTubeSegmentLength", "bentTubeBendRadius", "dovetailNeckWidth", "dovetailClearance", "screwBossHole", "screwBossHoleDepth", "screwBossDiameter", "screwBossGussetHeight", "screwBossGussetThickness", "screwBossReach", "snapFitThickness", "snapFitUndercut", "snapFitClearance", "snapFitFoot", "ribLength", "ribThickness", "ribFootThickness", "portClearance", "hingePinDiameter", "hingeLeafThickness", "hingeClearance", "hingeCornerRadius", "hingeScrewDiameter", "hingeScrewSpacing", "hingeScrewAcross", "hingeNutWidth", "hingeSnapGrip", "screwHoleShaft", "screwHoleHeadDepth", "screwHoleSlotLength", "screwHoleRecess", "screwHoleChamfer", "screwHoleLengthBelowHead", "knurlDepth", "knurlChamfer", "loftBottomWidth", "loftBottomDepth", "loftTopWidth", "loftTopDepth", "loftBottomCorner", "loftTopCorner", "loftOffsetX", "loftOffsetZ", "loftWall", "loftTopWall", "loftSectionHeight", "loftSectionWidth", "loftSectionDepth", "loftSectionCorner", "loftSectionOffsetX", "loftSectionOffsetZ", "gridfinityLabelBackLength", "gridfinityLabelBackOffset", "gridfinityLabelBackWidth", "gridfinityLabelCornerSize", "gridfinityLabelTextSize", "gridfinityLabelFrontLength", "gridfinityLabelFrontOffset", "gridfinityLabelFrontWidth", "gridfinityLabelLeftLength", "gridfinityLabelLeftOffset", "gridfinityLabelLeftWidth", "gridfinityLabelRightLength", "gridfinityLabelRightOffset", "gridfinityLabelRightWidth", "gridfinityScoopRadius", "gridfinityFloorHeight", "gridfinityLipChamfer", "gridfinityWallThickness", "gridfinityDrawerWidth", "gridfinityDrawerDepth", "gridfinityPaddingBack", "gridfinityPaddingFront", "gridfinityPaddingLeft", "gridfinityPaddingRight", "gridfinityOverhangBack", "gridfinityOverhangFront", "gridfinityOverhangLeft", "gridfinityOverhangRight", "gridfinityOverhangChamfer", "gridfinityCornerRadius", "gridfinityBinCornerRadius", "gridfinitySwallowtailClearance", "gridfinityDividerThickness", "gridfinityDividerHeight", "gridfinityDividerPositionX", "gridfinityDividerPositionZ", "gridfinityCompartmentLabelWidth", "gridfinityOpeningCornerSize", "gridfinityOpeningDepthBack", "gridfinityOpeningDepthFront", "gridfinityOpeningDepthLeft", "gridfinityOpeningDepthRight", "gridfinityOpeningWidthBack", "gridfinityOpeningWidthFront", "gridfinityOpeningWidthLeft", "gridfinityOpeningWidthRight", "gridfinityOpeningDistanceBack", "gridfinityOpeningDistanceFront", "gridfinityOpeningDistanceLeft", "gridfinityOpeningDistanceRight", "surfaceSpacing", "surfaceDepth", "surfaceFade", "surfaceCrackWidth", "surfaceCrackRecess", "surfaceTextSize", "surfaceCarbonCross", "surfaceBrickHeight", "surfaceBrickJoint", "surfaceTimberHeight", "surfaceTimberBeam", "surfaceStoneJoint", "surfaceTileGap", "surfaceRingWidth", "surfaceTileHeight", "vase.wall", "vase.bottom", "vase.ribDepth", "vase.stripeDepth", "vase.voronoiCell", "vase.voronoiGap", "vase.voronoiDepth", "vase.waveAmplitude", "vaseFloor.drainDiameter", "vaseFloor.floorSlope", "vaseFloor.footHeight", "vaseFloor.rubberFootDiameter", "vaseFloor.rubberFootDepth", "vaseFloor.cutoutSize", "vaseFloor.cutoutWeb", "vaseFloor.lampHole", "vaseFloor.puckDiameter", "vaseFloor.lampNotch", "vaseFloor.lampNotchHeight", "vaseFloor.reinforceDepth", "vaseFloor.slitWidth", "vaseFloor.lineWidth", "vasePrint.lineWidth", "vaseParts.legHeight", "vaseParts.legDiameter", "vaseParts.saucerHeight", "vaseParts.saucerGap", "vaseParts.saucerWall", "vaseParts.insertWall", "vaseParts.insertStandoff", "vaseParts.reservoirHeight", "vaseParts.frogHole", "vaseParts.tubeDiameter", "vaseParts.lidClearance", "vaseParts.lidThickness", "vaseParts.lidDepth", "vaseParts.lidHeight", "vaseParts.lidJoint", "vaseParts.threadPitch", "vaseParts.fitClearance"].includes(key);
 }
 
 /**
@@ -808,6 +822,10 @@ type ShapePropertyView = {
   setLoftError?: (message: string) => void;
   /** Sets a socket that has screw holes (D-Sub 9) on the opening and groups it with them, where the editor can. */
   portPresetWithScrewHoles?: (patch: Partial<WorkplaneShape>) => void;
+  /** The bed of the printer chosen in the workspace settings, which a Gridfinity bin or tray may reach across (#1917). */
+  bed?: GridfinityBed;
+  /** Lays so many clips out in front of a baseplate with clip notches and writes the count to it; 0 takes them away. */
+  gridfinityClips?: (count: number) => void;
 };
 const NO_PROPERTY_VIEW: ShapePropertyView = {};
 
@@ -1841,7 +1859,7 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
     const needsLargePlate = gridfinityOutlineNeedsLargePlate({ ...shape, depth });
     // The size is whole grid units; every change writes the box they make; a tray's and an outline plate's are free in mm.
     const apply = (next: Parameters<typeof gridfinityShapePatch>[1]) => {
-      const patch = gridfinityShapePatch({ ...shape, depth }, next);
+      const patch = gridfinityShapePatch({ ...shape, depth }, next, view.bed);
       onUpdate({ ...patch, size: resizedShapeSize(patch.width, patch.depth) });
     };
     const properties: ShapePropertyConfig[] = [
@@ -1862,6 +1880,15 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
       properties.push({ type: "toggle", id: "gridfinityLargePlate", label: t("prop.gridfinityLargePlate"), value: plan.largePlate, disabled: plan.largePlate && needsLargePlate, onChange: (value) => apply({ largePlate: value }) });
       // Swallowtail (#1061): not on a plate fitted to an outline, one piece for its drawer. The floor's 2.4 mm come with the switch.
       if (!plan.outline) properties.push({ type: "toggle", id: "gridfinitySwallowtail", label: t("prop.gridfinitySwallowtail"), value: plan.swallowtail, onChange: (value) => apply({ swallowtail: value }) });
+      // Clip notches for ostat's wall clips: not on an outline plate either. The plate's box stays as it is.
+      if (!plan.outline) properties.push({ type: "toggle", id: "gridfinityClipNotches", label: t("prop.gridfinityClipNotches"), value: plan.clipNotches, onChange: (value) => onUpdate({ gridfinityClipNotches: value }) });
+      // Add clips lays the clips out in front of the plate at once, one to start with, and the count lays them out anew; switched off, they go.
+      const onGridfinityClips = view.gridfinityClips;
+      if (plan.clipNotches && onGridfinityClips) {
+        const clips = gridfinityClipCount(shape);
+        properties.push({ type: "toggle", id: "gridfinityClips", label: t("inspector.gridfinityClips"), value: clips > 0, onChange: (value) => onGridfinityClips(value ? DEFAULT_GRIDFINITY_CLIP_COUNT : 0) });
+        if (clips > 0) properties.push({ id: "gridfinityClipCount", label: t("prop.gridfinityClipCount"), value: clips, min: 1, max: MAX_GRIDFINITY_CLIP_COUNT, step: 1, hint: t("gridfinity.clipCountHint"), onChange: (value) => onGridfinityClips(Math.round(clamp(value, 1, MAX_GRIDFINITY_CLIP_COUNT))) });
+      }
       // The keys' clearance (#1061): only for the keys Add keys lays out next; the plate stays as it is.
       if (plan.swallowtail) properties.push({ id: "gridfinitySwallowtailClearance", label: t("prop.gridfinitySwallowtailClearance"), value: gridfinitySwallowtailClearance(shape), min: 0, max: MAX_GRIDFINITY_SWALLOWTAIL_CLEARANCE, step: 0.01, hint: t("gridfinity.swallowtailClearanceHint"), onChange: (value) => onUpdate({ gridfinitySwallowtailClearance: clamp(value, 0, MAX_GRIDFINITY_SWALLOWTAIL_CLEARANCE) }) });
     }
@@ -1879,17 +1906,21 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
         { id: "width", label: t("prop.width"), value: plan.size.width, min: MIN_GRIDFINITY_TRAY_SIZE, max: limit, hint: [plan.cells.length > 0 ? t("gridfinity.outlineCells", { cells: plan.cells.length }) : t("gridfinity.outlineNoCells"), ...(needsLargePlate ? [t("gridfinity.outlineNeedsLargePlate", { size: gridfinityOutlineLimit({ ...shape, gridfinityLargePlate: false }) })] : [])].join(" "), onChange: setWidth },
       );
     } else if (plan.type === "tray") {
-      // A tray (#837) has no grid: its size is free in mm, as a box's.
+      // A tray (#837) has no grid: its size is free in mm, as a box's, as far as the printer's bed reaches (#1917).
+      const trayMax = Math.max(gridfinityTrayMax(view.bed), plan.size.width, plan.size.depth);
       properties.push(
-        { id: "length", label: t("prop.length"), value: plan.size.depth, min: MIN_GRIDFINITY_TRAY_SIZE, max: MAX_GRIDFINITY_TRAY_SIZE, onChange: setDepth },
-        { id: "width", label: t("prop.width"), value: plan.size.width, min: MIN_GRIDFINITY_TRAY_SIZE, max: MAX_GRIDFINITY_TRAY_SIZE, onChange: setWidth },
+        { id: "length", label: t("prop.length"), value: plan.size.depth, min: MIN_GRIDFINITY_TRAY_SIZE, max: trayMax, onChange: setDepth },
+        { id: "width", label: t("prop.width"), value: plan.size.width, min: MIN_GRIDFINITY_TRAY_SIZE, max: trayMax, hint: t("gridfinity.bedLimitHint", { size: gridfinityTrayMax(view.bed).toLocaleString(numberLocale()) }), onChange: setWidth },
         { id: "height", label: t("prop.height"), value: plan.size.height, min: MIN_GRIDFINITY_TRAY_HEIGHT, max: MAX_GRIDFINITY_TRAY_HEIGHT, onChange: setHeight },
       );
     } else {
-      const maxUnits = gridfinityMaxUnits(shape);
+      // A bin takes as many units as the printer's bed reaches (#1917); a bin already larger, from a drag, a file or the
+      // MCP, keeps its units in the field.
+      const maxUnits = Math.max(gridfinityMaxUnits(shape, view.bed), plan.type === "bin" ? Math.max(plan.count.x, plan.count.z) : 0);
+      const bedHint = plan.type === "bin" ? t("gridfinity.bedLimitHint", { size: gridfinityBedReach(view.bed).toLocaleString(numberLocale()) }) : undefined;
       properties.push(
         { id: "gridfinityUnitsX", label: t("prop.gridfinityUnitsX"), value: plan.count.x, min: MIN_GRIDFINITY_UNITS, max: maxUnits, step: 1, hint: plan.halfGrid ? t("gridfinity.halfGridHint") : plan.largePlate ? t("gridfinity.largePlateHint") : undefined, onChange: (value) => apply({ x: Math.round(value) }) },
-        { id: "gridfinityUnitsZ", label: t("prop.gridfinityUnitsZ"), value: plan.count.z, min: MIN_GRIDFINITY_UNITS, max: maxUnits, step: 1, onChange: (value) => apply({ z: Math.round(value) }) },
+        { id: "gridfinityUnitsZ", label: t("prop.gridfinityUnitsZ"), value: plan.count.z, min: MIN_GRIDFINITY_UNITS, max: maxUnits, step: 1, hint: bedHint, onChange: (value) => apply({ z: Math.round(value) }) },
       );
     }
     if (plan.type === "baseplate" && !plan.outline) {
@@ -2852,10 +2883,30 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
 
   if (shape.kind === "polygon") {
     const sides = shape.sides ?? 6;
+    // A flat side in front instead of a corner (Discussion #1787): the corners stand half a side step further round.
+    const flat = Boolean(shape.polygonFlat);
+    // The Roof (#1931) keeps its three sides and lies on one of them: no side count and no flat side. Its measures
+    // are named by the way they run on the plate by withOrientedMeasures (#230), as for any body turned on its side.
+    if (shape.polygonRoof) {
+      return [
+        {
+          id: "cornerFillet",
+          label: t("prop.cornerFillet"),
+          value: normalizePolygonCornerRadius(shape.cornerFillet, width, depth, sides, flat),
+          min: 0,
+          max: Math.max(0.01, maxPolygonCornerRadius(width, depth, sides, flat)),
+          step: 0.1,
+          onChange: (value) => onUpdate({ cornerFillet: Math.round(normalizePolygonCornerRadius(value, width, depth, sides, flat) * 1e3) / 1e3 }),
+        },
+        { id: "length", label: t("prop.length"), value: depth, min: MIN_SHAPE_SIZE, max: 160, onChange: setDepth },
+        { id: "width", label: t("prop.width"), value: width, min: MIN_SHAPE_SIZE, max: 160, onChange: setWidth },
+        { id: "height", label: t("prop.height"), value: shape.height, min: MIN_SHAPE_SIZE, max: 160, onChange: setHeight },
+      ];
+    }
     // A hexagon becomes the pocket for a nut (ISO 4032) in one choice: across flats, across corners and height.
     const applyNutPocket = (value: string) => {
       if (!isNutPocketSize(value)) return;
-      const pocket = nutPocketFields(value);
+      const pocket = nutPocketFields(value, flat);
       onUpdate({ ...widthPatch(pocket.width), depth: pocket.depth, size: resizedShapeSize(pocket.width, pocket.depth), height: pocket.height }, { resizeAxis: "width" });
     };
     const nutPocketProperty: ShapePropertyConfig[] = Math.round(sides) === 6
@@ -2863,7 +2914,7 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
           type: "select" as const,
           id: "nutPocketSize",
           label: t("prop.nutPocketSize"),
-          value: nutPocketSizeFor(sides, width, depth, shape.height) ?? "custom",
+          value: nutPocketSizeFor(sides, width, depth, shape.height, flat) ?? "custom",
           options: [
             { value: "custom", label: t("port.custom") },
             ...NUT_POCKET_SIZE_ORDER.map((size) => ({ value: size, label: size })),
@@ -2886,22 +2937,44 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
           // ein Sechskant. Zieht man es nicht mit, wird aus dem gleichseitigen
           // Vieleck beim Umschalten ein gestauchtes.
           const nextSides = Math.round(value);
-          const current = regularPolygonAspect(shape.sides ?? 6);
-          const next = regularPolygonAspect(nextSides);
+          const current = regularPolygonAspect(shape.sides ?? 6, polygonFlatAngle(shape.sides, flat));
+          const next = regularPolygonAspect(nextSides, polygonFlatAngle(nextSides, flat));
           const nextWidth = Math.max(MIN_SHAPE_SIZE, (width / current.width) * next.width);
           const nextDepth = Math.max(MIN_SHAPE_SIZE, (depth / current.depth) * next.depth);
           onUpdate({ sides: nextSides, width: nextWidth, depth: nextDepth, size: resizedShapeSize(nextWidth, nextDepth) });
         },
       },
       {
+        type: "toggle" as const,
+        id: "polygonFlat",
+        label: t("prop.polygonFlat"),
+        hint: t("prop.polygonFlatHint"),
+        value: flat,
+        onChange: (value: boolean) => {
+          // The body stays the one it was, turned by half a side: length and width follow, as when the number
+          // of sides changes. An octagon of 26 from corner to corner then reads 24.02 from flat to flat.
+          const current = regularPolygonAspect(sides, polygonFlatAngle(sides, flat));
+          const next = regularPolygonAspect(sides, polygonFlatAngle(sides, value));
+          const nextWidth = Math.max(MIN_SHAPE_SIZE, (width / current.width) * next.width);
+          const nextDepth = Math.max(MIN_SHAPE_SIZE, (depth / current.depth) * next.depth);
+          onUpdate({
+            polygonFlat: value || undefined,
+            width: nextWidth,
+            depth: nextDepth,
+            size: resizedShapeSize(nextWidth, nextDepth),
+            ...((shape.cornerFillet ?? 0) > 0 ? { cornerFillet: Math.round(normalizePolygonCornerRadius(shape.cornerFillet, nextWidth, nextDepth, sides, value) * 1e3) / 1e3 } : {}),
+          });
+        },
+      },
+      {
         // The corners rounded like a Rounded box's, one radius for all; the dot on the model does the same.
         id: "cornerFillet",
         label: t("prop.cornerFillet"),
-        value: normalizePolygonCornerRadius(shape.cornerFillet, width, depth, sides),
+        value: normalizePolygonCornerRadius(shape.cornerFillet, width, depth, sides, flat),
         min: 0,
-        max: Math.max(0.01, maxPolygonCornerRadius(width, depth, sides)),
+        max: Math.max(0.01, maxPolygonCornerRadius(width, depth, sides, flat)),
         step: 0.1,
-        onChange: (value) => onUpdate({ cornerFillet: Math.round(normalizePolygonCornerRadius(value, width, depth, sides) * 1e3) / 1e3 }),
+        onChange: (value) => onUpdate({ cornerFillet: Math.round(normalizePolygonCornerRadius(value, width, depth, sides, flat) * 1e3) / 1e3 }),
       },
       { id: "length", label: t("prop.length"), value: depth, min: MIN_SHAPE_SIZE, max: 160, onChange: setDepth },
       { id: "width", label: t("prop.width"), value: width, min: MIN_SHAPE_SIZE, max: 160, onChange: setWidth },
@@ -4143,7 +4216,7 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
       { id: "letterSize", label: t("nameTag.letterSize"), value: textLetterSize(shape), min: MIN_LETTER_SIZE, max: 60, step: 0.5, hint: t("nameTag.letterSizeHint"), onChange: (size) => onUpdate(textLetterSizePatch(shape, size)) },
       { id: "height", label: t("prop.height"), value: shape.height, min: MIN_SHAPE_SIZE, max: 40, hint: t("prop.textHeightHint"), onChange: setHeight },
       ...textFillProperties(shape, onUpdate),
-      // The top edge of the letters (#499), as on a name tag; a rounded or chamfered edge takes the place of the bevel.
+      // The edge of the letters (#499), on the top as on a name tag, the bottom or both; it takes the place of the bevel.
       ...textEdgeProperties(shape, onUpdate),
       // A fill mode or the silhouette draws the letters flat; bevel and segments belong to the filled letters.
       ...(textHasFill(shape) || textHasEdge(shape) ? [] : [
@@ -4229,6 +4302,14 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
             onUpdate({ textLetterWidth: Math.round(letterWidth) === 100 ? undefined : letterWidth });
           },
         },
+        // All the way round (#1840): the line closes the circle, every gap alike; a column of upright letters has no such thing.
+        ...(shape.textVertical ? [] : [{
+          type: "toggle",
+          id: "textFullCircle",
+          label: t("prop.textFullCircle"),
+          value: Boolean(shape.textFullCircle),
+          onChange: (textFullCircle: boolean) => onUpdate({ textFullCircle: textFullCircle || undefined }),
+        } satisfies ShapePropertyConfig]),
         {
           type: "toggle",
           id: "textInward",
@@ -4269,7 +4350,11 @@ function getShapePropertiesWithAppLimits(shape: WorkplaneShape, onUpdate: ShapeI
 const TEXT_FILL_MORE_IDS = new Set(["textWiderCorners", "textSilhouette", "textWider"]);
 const TEXT_FILL_IN_VIEW_IDS = new Set(["textFill", "textLineWidth", "textCorners"]);
 
-/** The letters' top edge, round or chamfered, and how large (#499): the setting the name tag has for its top layer. */
+/**
+ * The letters' edge, round or chamfered, how large (#499) and on which end: the top, as the name tag
+ * has it, the bottom - for letters cut out of a body, whose chamfered floor prints without bridges -
+ * or both.
+ */
 function textEdgeProperties(shape: WorkplaneShape, onUpdate: ShapeInspectorUpdate): ShapePropertyConfig[] {
   // A text longer than MAX_EDGED_TEXT_LENGTH takes no letter edge (its build would take a minute): the field is greyed
   // out and says why; a setting it had stays, and comes back once the text is short enough again.
@@ -4286,6 +4371,11 @@ function textEdgeProperties(shape: WorkplaneShape, onUpdate: ShapeInspectorUpdat
     }];
   }
   const edge = normalizeTextEdge(shape.textEdge);
+  const side = textEdgeSide(edge);
+  const withSide = (next: TextEdgeSide) => (next === "top" ? {} : { side: next });
+  const maxSize = Math.max(MIN_TEXT_EDGE, maxTextEdgeSize(shape.height, side));
+  // A solid text whose thin letters would start above the underside says so; a hole just cuts shallower there.
+  const footFloats = edge && side !== "top" && !shape.hole && textEdgeFootFloats(shape) === true;
   return [
     {
       type: "select",
@@ -4293,16 +4383,33 @@ function textEdgeProperties(shape: WorkplaneShape, onUpdate: ShapeInspectorUpdat
       label: t("nameTag.letterEdge"),
       value: edge?.kind ?? "none",
       options: (["none", "round", "chamfer"] as const).map((value) => ({ value, label: t(`nameTag.edge.${value}`) })),
-      onChange: (value) => onUpdate({ textEdge: value === "round" || value === "chamfer" ? { kind: value, size: edge?.size ?? Math.min(0.4, shape.height) } : undefined }),
+      onChange: (value) => onUpdate({ textEdge: value === "round" || value === "chamfer" ? { kind: value, size: edge?.size ?? Math.min(0.4, shape.height), ...withSide(side) } : undefined }),
     },
     ...(edge ? [{
+      type: "select",
+      id: "textEdgeSide",
+      label: t("prop.textEdgeSide"),
+      value: side,
+      options: TEXT_EDGE_SIDES.map((value) => ({ value, label: t(`prop.textEdgeSide.${value}`) })),
+      // Both ends on a long text build slowly (SLOW_BOTH_EDGES_LENGTH): said first, before what the side is good for.
+      hint: [
+        textEdgeBuildsSlowly(shape) ? t("prop.textEdgeBothSlow", { max: SLOW_BOTH_EDGES_LENGTH }) : null,
+        side === "top" ? null : edge.kind === "round" ? t("prop.textEdgeSideRoundHint") : t("prop.textEdgeSideChamferHint"),
+      ].filter(Boolean).join(" ") || undefined,
+      // Both ends take at most half the height each: the size comes down with it.
+      onChange: (value: string) => {
+        const next = isTextEdgeSide(value) ? value : "top";
+        onUpdate({ textEdge: { kind: edge.kind, size: Math.min(edge.size, Math.max(MIN_TEXT_EDGE, maxTextEdgeSize(shape.height, next))), ...withSide(next) } });
+      },
+    } satisfies ShapePropertyConfig, {
       id: "textEdgeSize",
       label: t("nameTag.letterEdgeSize"),
       value: edge.size,
       min: MIN_TEXT_EDGE,
-      max: Math.max(MIN_TEXT_EDGE, Math.min(MAX_TEXT_EDGE, shape.height)),
+      max: maxSize,
       step: 0.05,
-      onChange: (size: number) => onUpdate({ textEdge: { kind: edge.kind, size } }),
+      hint: footFloats ? t("prop.textEdgeFootFloats") : undefined,
+      onChange: (size: number) => onUpdate({ textEdge: { kind: edge.kind, size, ...withSide(side) } }),
     } satisfies ShapePropertyConfig] : []),
   ];
 }
@@ -4515,7 +4622,8 @@ function getShapeProperties(shape: WorkplaneShape, onUpdate: ShapeInspectorUpdat
   const customLimit = workspace.shapeCustomizations[shape.kind]?.maxDimension;
   // A body turned by right angles names its measures by the way they run now (#230).
   const oriented = orientedMeasures(shape);
-  const own = getShapePropertiesWithAppLimits(shape, onUpdate, view);
+  const printer = printerPresetById(workspace.printer);
+  const own = getShapePropertiesWithAppLimits(shape, onUpdate, { ...view, bed: printer ? { width: printer.width, depth: printer.depth } : null });
   const properties = withOrientedMeasures(own, oriented, MEASURE_LABELS());
   if (customLimit === undefined) return properties;
   return properties.map((property) => {
@@ -4531,6 +4639,30 @@ function getShapeProperties(shape: WorkplaneShape, onUpdate: ShapeInspectorUpdat
  * height comes out in whole millimetres instead of 0.81 steps of one pixel; typing and the arrow keys stay exact.
  */
 const SliderSnapContext = createContext(0);
+
+/** The most parts a group's card lists with their own colours; a bigger group is coloured in its own editing. */
+const PART_COLOR_LIMIT = 12;
+
+/**
+ * A part's colour swatch: the system colour picker, taken once the picker is closed (its "change"), so dragging in the
+ * picker makes one undo step, not one for every shade passed on the way.
+ */
+function PartColorInput({ color, disabled, onCommit }: { color: string; disabled: boolean; onCommit: (color: string) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const commitRef = useRef(onCommit);
+  commitRef.current = onCommit;
+  useEffect(() => {
+    const input = ref.current;
+    if (!input) return;
+    if (input.value !== color) input.value = color;
+    const changed = () => {
+      if (/^#[0-9a-f]{6}$/i.test(input.value) && input.value.toLowerCase() !== color.toLowerCase()) commitRef.current(input.value.toLowerCase());
+    };
+    input.addEventListener("change", changed);
+    return () => input.removeEventListener("change", changed);
+  }, [color]);
+  return <input ref={ref} type="color" defaultValue={color} disabled={disabled} />;
+}
 
 export function ShapeInspector({
   shape,
@@ -4566,6 +4698,7 @@ export function ShapeInspector({
   onGridfinityKeys,
   onGridfinitySplit,
   onBoltSplit,
+  onGridfinityClips,
   onLayerText,
   onTextTags,
   onTextBlock,
@@ -4630,7 +4763,9 @@ export function ShapeInspector({
   /** Splits this baseplate into plates that fit the printer, with their keys (#1388). */
   onGridfinitySplit?: () => void;
   /** A screw or rod split lengthwise and laid flat for printing, with centring pins or without (lib/boltSplit.ts). */
-  onBoltSplit?: (pins: boolean) => void;
+  onBoltSplit?: (pins: boolean, filament: boolean) => void;
+  /** Lays so many clips out in front of this baseplate, ready to print, for its clip notches; 0 takes them away. */
+  onGridfinityClips?: (count: number) => void;
   /** Splits a text into layers, or builds a layered text again with new words, font or layers (#215). */
   onLayerText?: (patch: TextLayerPatch) => void;
   /** One tag like this text or stack per name, laid out in rows (#215). */
@@ -4668,12 +4803,23 @@ export function ShapeInspector({
   const solidColor = shape.color;
   // Picking one colour for a group means one colour for all of it, as in similar tools.
   const singleColorPatch: Partial<WorkplaneShape> = canToggleGroupColors(shape) ? { multicolor: false } : {};
+  // A group or bundle showing its parts in their own colours: the solid parts, each with its colour, to change it right
+  // here (a cut group shows one mesh, so only groups whose parts stay apart). Up to a dozen, so the card stays short.
+  // A name tag's or an icon tag's layers have their colours in the tag's own card (#215): not shown twice.
+  const partColors = !shape.hole && !shape.layeredText && !shape.layeredIcon && groupShowsPartColors(shape) && (shape.groupOperation === "bundle" || !shape.importedMesh)
+    ? (shape.groupedShapes ?? [])
+        .filter((part) => !part.hole && !isNonSolidShape(part))
+        .slice(0, PART_COLOR_LIMIT + 1)
+        .map((part) => ({ id: part.id, name: displayShapeName(part), color: /^#[0-9a-f]{6}$/i.test(part.color) ? part.color.toLowerCase() : "#888888" }))
+    : [];
+  if (partColors.length > PART_COLOR_LIMIT || partColors.length < 2) partColors.length = 0;
   const locked = Boolean(shape.locked);
   // Lock shape (#1277): where the part stands and how it turns stay free; its size, settings and name do not.
   const shapeLocked = Boolean(shape.shapeLocked);
   const frozen = locked || holdsShapeLock(shape);
   // A baseplate larger than the chosen printer's bed is offered the split (#1388), unless a single cell does not fit it either.
   const [boltPins, setBoltPins] = useState(true);
+  const [boltFilament, setBoltFilament] = useState(false);
   const boltSplit = onBoltSplit && boltSplitFits(shape) ? { pinDiameter: boltPinDiameter(shape) } : null;
   const splitPrinter = onGridfinitySplit ? printerPresetById(workspace.printer) : null;
   const gridfinitySplit = splitPrinter ? gridfinityPlateSplit({ ...shape, depth: shapeDepth(shape) }, splitPrinter) : null;
@@ -4698,7 +4844,8 @@ export function ShapeInspector({
   const [loftError,setLoftError] = useState("");
   useEffect(()=>{setSeparateTopWall(false);setSvgSections(new Set());setLoftError("");},[shape.id]);
   const printerPlay = usePrinterPlay();
-  const properties = withFitTestNotes(getShapeProperties(shape, onUpdate, workspace, { sketchSources,onSelectSketchSource,svgSections,setSvgSection,clearSvgSections:()=>setSvgSections(new Set()),separateTopWall, setSeparateTopWall, setLoftError, portPresetWithScrewHoles: onPortPresetWithScrewHoles }), shape.kind, printerPlay);
+  const properties = withFitTestNotes(getShapeProperties(shape, onUpdate, workspace, { sketchSources,onSelectSketchSource,svgSections,setSvgSection,clearSvgSections:()=>setSvgSections(new Set()),separateTopWall, setSeparateTopWall, setLoftError, portPresetWithScrewHoles: onPortPresetWithScrewHoles, gridfinityClips: onGridfinityClips }), shape.kind, printerPlay);
+
   const tiltedMeasures = orientedMeasures(shape).kind === "tilted";
   // A shape with settings of its own that got a fillet or chamfer shows only its measures now; the note names it
   // and says how its settings come back (#1689). A plain box had nothing more, so it gets no note.
@@ -5162,6 +5309,7 @@ export function ShapeInspector({
         </div>
         <div className="inspector-header-actions">
           <GuideHelpLink chapter={guideChapterForShape(shape)} section={guideSectionForShape(shape)} className="inspector-help-link" />
+          {variableContext.inspectDependencies&&<button type="button" className={`inspector-header-icon ${variableContext.dependenciesOpen?'active':''}`} title="Inspect dependencies" aria-label="Inspect dependencies" aria-pressed={Boolean(variableContext.dependenciesOpen)} onClick={variableContext.inspectDependencies}><GitBranch size={16}/></button>}
           <button className={locked ? "inspector-header-icon active" : "inspector-header-icon"} aria-label={locked ? t("outliner.unlock") : t("outliner.lock")} aria-keyshortcuts="Control+L" title={t("camera.shortcut", { label: locked ? t("outliner.unlock") : t("outliner.lock"), keys: "Ctrl+L" })} onClick={() => onUpdate({ locked: !locked })}>
             {locked ? <Lock size={16} /> : <Unlock size={16} />}
           </button>
@@ -5245,6 +5393,22 @@ export function ShapeInspector({
             disabled={frozen}
             onChange={(multicolor) => onUpdate({ multicolor })}
           />
+        ) : null}
+        {/* Under Multicolor: each part's own colour, to change one part without opening the group (a two-colour plate's base or top). */}
+        {partColors.length ? (
+          <div className="part-colors" role="group" aria-label={t("inspector.partColors")}>
+            <span>{t("inspector.partColors")}</span>
+            {partColors.map((part) => (
+              <label key={part.id} className="part-color-row">
+                <PartColorInput
+                  color={part.color}
+                  disabled={frozen}
+                  onCommit={(color) => onUpdate({ groupedShapes: shape.groupedShapes!.map((child) => (child.id === part.id ? { ...child, color } : child)) })}
+                />
+                <span>{part.name}</span>
+              </label>
+            ))}
+          </div>
         ) : null}
       </div>
       ) : null}
@@ -5579,6 +5743,9 @@ export function ShapeInspector({
                 undo: t("edge.revertAction"),
               })}</p>
             ) : null}
+            {shape.kind === "gridfinity" && gridfinityPlan({ ...shape, depth: shapeDepth(shape) }).clipNotches ? (
+              <p className="cylinder-wrap-hint">{t("gridfinity.clipNotchesHint")}</p>
+            ) : null}
             {shape.kind === "gridfinity" && gridfinityPlan({ ...shape, depth: shapeDepth(shape) }).swallowtail ? (
               <>
                 <p className="cylinder-wrap-hint">{t("gridfinity.swallowtailHint")}</p>
@@ -5597,8 +5764,14 @@ export function ShapeInspector({
                   <input type="checkbox" checked={boltPins} disabled={frozen} data-testid="bolt-split-pins" onChange={(event) => setBoltPins(event.currentTarget.checked)} />
                   <span>{t("inspector.boltSplitPins")}</span>
                 </label>
-                {boltPins ? <p className="cylinder-wrap-hint">{t("inspector.boltSplitPinsHint", { diameter: boltSplit.pinDiameter.toLocaleString(numberLocale()) })}</p> : null}
-                <button className="inspector-action-button" type="button" disabled={frozen} data-testid="bolt-split" onClick={() => onBoltSplit(boltPins)}>
+                {boltPins ? (
+                  <label className="check-property bolt-split-filament">
+                    <input type="checkbox" checked={boltFilament} disabled={frozen} data-testid="bolt-split-filament" onChange={(event) => setBoltFilament(event.currentTarget.checked)} />
+                    <span>{t("inspector.boltSplitFilament")}</span>
+                  </label>
+                ) : null}
+                {boltPins ? <p className="cylinder-wrap-hint">{boltFilament ? t("inspector.boltSplitFilamentHint") : t("inspector.boltSplitPinsHint", { diameter: boltSplit.pinDiameter.toLocaleString(numberLocale()) })}</p> : null}
+                <button className="inspector-action-button" type="button" disabled={frozen} data-testid="bolt-split" onClick={() => onBoltSplit(boltPins, boltPins && boltFilament)}>
                   <Scissors size={17} strokeWidth={2.5} />
                   <span>{t("inspector.boltSplit")}</span>
                 </button>
@@ -5606,14 +5779,15 @@ export function ShapeInspector({
             ) : null}
             {splitPrinter && gridfinitySplit ? (
               <>
-                <p className="cylinder-wrap-hint">{t("gridfinity.splitHint", { count: gridfinitySplit.length, printer: `${splitPrinter.vendor} ${splitPrinter.model}` })}</p>
+                <p className="cylinder-wrap-hint">{t(gridfinityPlateSplitsWithClips(shape) ? "gridfinity.splitHintClips" : "gridfinity.splitHint", { count: gridfinitySplit.length, printer: `${splitPrinter.vendor} ${splitPrinter.model}` })}</p>
                 <button className="inspector-action-button" type="button" disabled={frozen} onClick={onGridfinitySplit}>
                   <Grid3x3 size={17} strokeWidth={2.5} />
                   <span>{t("inspector.gridfinitySplit")}</span>
                 </button>
               </>
             ) : null}
-            {onShapeDefaultsChange && propertyDefaults ? (
+            {/* The Roof (#1931) is a polygon underneath: its sizes saved as defaults would turn every new polygon into a triangle. */}
+            {onShapeDefaultsChange && propertyDefaults && !shape.polygonRoof ? (
               <div className="property-defaults-actions">
                 <button type="button" disabled={frozen || sameDefaults} title={t("inspector.saveDefaultsHint")} onClick={() => onShapeDefaultsChange(shape.kind, defaultsToSave)}>
                   {t("inspector.saveDefaults")}
@@ -5652,6 +5826,7 @@ export function ShapeInspector({
             </div>
             {/* A formula is written for the middle; at the edges the fields take plain numbers. */}
             <ShapePropertyRows formulas={edges ? undefined : shape.formulas} onFormula={edges ? undefined : noteFormula} properties={shownPositionProperties} workspace={workspace} disabled={locked} onInteractionActiveChange={onInteractionActiveChange} />
+            <SketchElevationControl shape={shape}/>
             {pivot ? (
               <>
                 <div className="property-subheading">
@@ -5936,7 +6111,7 @@ export function ShapeInspector({
  * sliders are the same range rows as everywhere else, so a drag shows a live
  * preview and ends in a single undo step.
  */
-export type TextLayerPatch = { text?: string; font?: string; letterSize?: number; /** Letters stacked top to bottom (#981). */ vertical?: boolean; layers?: TextLayer[]; keyring?: NameTagKeyring | null; /** "Free" (#598): the hole comes off the tag and a key ring tab of its own is put beside it. */ keyringTab?: boolean };
+export type TextLayerPatch = { text?: string; font?: string; letterSize?: number; /** Letters stacked top to bottom (#981). */ vertical?: boolean; layers?: TextLayer[]; keyring?: NameTagKeyring | null; /** "Free" (#598): the hole comes off the tag and a key ring tab of its own is put beside it. */ keyringTab?: boolean; /** Laid in flush (#215), or stacked again (null). */ flush?: TagFlush | null };
 
 /**
  * A key ring tab of its own (#598): once it is in place, one click fixes it to the nearest tag
@@ -6157,9 +6332,39 @@ function NameListCard({ shapeId, disabled, onTextTags, onInteractionActiveChange
  * colour, how much wider than the top, its corners, height, without holes - with "+" and "–".
  * The top row is the letters or the icon themselves and has no width or corners of its own.
  */
-function LayerRows({ layers, firstLabel, workspace, disabled, onChange, onInteractionActiveChange }: {
+/**
+ * A name tag or an icon tag laid in flush (#215): one switch for the whole tag, and under it how deep the colours are set
+ * into the bottom layer. Flush, all layers end on one flat top - the face prints smooth face down on the plate; the bottom
+ * layer's height is the tag's thickness and the other heights wait for the tag to be stacked again.
+ */
+function TagFlushRows({ flush, layers, workspace, disabled, onChange, onInteractionActiveChange }: {
+  flush: TagFlush | null;
+  layers: TextLayer[];
+  workspace: WorkplaneWorkspaceSettings;
+  disabled: boolean;
+  onChange: (flush: TagFlush | null) => void;
+  onInteractionActiveChange?: (active: boolean) => void;
+}) {
+  const bottomHeight = layers[layers.length - 1]?.height ?? 0;
+  const deepest = Math.max(MIN_FLUSH_DEPTH, Math.min(MAX_FLUSH_DEPTH, bottomHeight - MIN_FLUSH_FLOOR));
+  return (
+    <>
+      <ToggleProperty label={t("nameTag.flush")} value={Boolean(flush)} disabled={disabled || layers.length < 2} onChange={(on) => onChange(on ? { depth: flush?.depth ?? DEFAULT_FLUSH_DEPTH } : null)} />
+      {flush ? (
+        <>
+          <RangeProperty id="flushDepth" label={t("nameTag.flushDepth")} value={flushDepthFor(flush.depth, bottomHeight)} min={MIN_FLUSH_DEPTH} max={deepest} step={0.1} hint={t("nameTag.flushDepthHint")} workspace={workspace} disabled={disabled} onChange={(depth) => onChange({ depth })} onInteractionActiveChange={onInteractionActiveChange} />
+          <p className="property-hint">{t("nameTag.flushHint")}</p>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function LayerRows({ layers, firstLabel, inlayDepth, workspace, disabled, onChange, onInteractionActiveChange }: {
   layers: TextLayer[];
   firstLabel: string;
+  /** Laid in flush (#215): every layer above the bottom one is this deep, whatever its own height says; its field shows it, greyed. */
+  inlayDepth?: number;
   workspace: WorkplaneWorkspaceSettings;
   disabled: boolean;
   onChange: (layers: TextLayer[]) => void;
@@ -6224,7 +6429,12 @@ function LayerRows({ layers, firstLabel, workspace, disabled, onChange, onIntera
               )}
             </span>
             <span role="cell">
-              <CompactMeasureField label={`${layerName(index)}: ${t("nameTag.height", { unit })}`} value={layer.height} min={MIN_TEXT_LAYER_HEIGHT} max={40} workspace={workspace} disabled={disabled} onChange={(height) => changeLayer(index, { height })} onInteractionActiveChange={onInteractionActiveChange} />
+              {inlayDepth !== undefined && index < layers.length - 1 ? (
+                // Inlaid, the layer is as deep as the slider under the table sets: shown, not set here.
+                <CompactMeasureField label={`${layerName(index)}: ${t("nameTag.height", { unit })}`} value={inlayDepth} min={0} max={40} workspace={workspace} disabled onChange={() => undefined} />
+              ) : (
+                <CompactMeasureField label={`${layerName(index)}: ${t("nameTag.height", { unit })}`} value={layer.height} min={MIN_TEXT_LAYER_HEIGHT} max={40} workspace={workspace} disabled={disabled} onChange={(height) => changeLayer(index, { height })} onInteractionActiveChange={onInteractionActiveChange} />
+              )}
             </span>
             <span role="cell" className="name-tag-check">
               <input type="checkbox" aria-label={`${layerName(index)}: ${t("nameTag.noHoles")}`} checked={Boolean(layer.silhouette)} disabled={disabled} onChange={(event) => changeLayer(index, { silhouette: event.currentTarget.checked || undefined })} />
@@ -6291,7 +6501,8 @@ function NameTagCard({
       {open ? (
         <div className="property-list text-layers-body name-tag-body" id={`name-tag-${shapeId}`}>
           <ShapePropertyRows properties={properties} workspace={workspace} disabled={disabled} onInteractionActiveChange={onInteractionActiveChange} />
-          <LayerRows layers={layers} firstLabel={t("nameTag.letters")} workspace={workspace} disabled={disabled} onChange={writeLayers} onInteractionActiveChange={onInteractionActiveChange} />
+          <LayerRows layers={layers} firstLabel={t("nameTag.letters")} inlayDepth={stack.flush && layers.length > 1 ? flushDepthFor(stack.flush.depth, layers[layers.length - 1].height) : undefined} workspace={workspace} disabled={disabled} onChange={writeLayers} onInteractionActiveChange={onInteractionActiveChange} />
+          <TagFlushRows flush={stack.flush} layers={layers} workspace={workspace} disabled={disabled} onChange={(flush) => onLayerText({ flush })} onInteractionActiveChange={onInteractionActiveChange} />
           {/* The top edge of the letters (#225): a printed tag's letters on top are finished, not cut square. */}
           <div className="name-tag-sides name-tag-edge" role="radiogroup" aria-label={t("nameTag.letterEdge")}>
             <span>{t("nameTag.letterEdge")}</span>
@@ -6359,7 +6570,7 @@ function NameTagCard({
 }
 
 /** What the icon tag card changes: the icon's width and the layers; the rest stays as it is. */
-export type IconLayerPatch = { width?: number; layers?: TextLayer[]; keyring?: NameTagKeyring | null; /** "Free" (#598): the hole comes off the tag and a key ring tab of its own is put beside it. */ keyringTab?: boolean };
+export type IconLayerPatch = { width?: number; layers?: TextLayer[]; keyring?: NameTagKeyring | null; /** "Free" (#598): the hole comes off the tag and a key ring tab of its own is put beside it. */ keyringTab?: boolean; /** Laid in flush (#215), or stacked again (null). */ flush?: TagFlush | null };
 
 /**
  * The icon tag card's wiring: the stack as it stands, the build, the copies on the plate, and
@@ -6833,7 +7044,8 @@ function IconTagCard({ shapeId, controls, layerSteps, workspace, disabled, onInt
           </button>
           {replaceError ? <p className="name-tag-hint icon-tag-card-error" role="alert">{replaceError}</p> : null}
           <ShapePropertyRows properties={properties.slice(0, 1)} workspace={workspace} disabled={disabled} onInteractionActiveChange={onInteractionActiveChange} />
-          <LayerRows layers={stack.layers} firstLabel={t("iconTag.icon")} workspace={workspace} disabled={disabled} onChange={(layers) => onLayer({ layers })} onInteractionActiveChange={onInteractionActiveChange} />
+          <LayerRows layers={stack.layers} firstLabel={t("iconTag.icon")} inlayDepth={stack.flush && stack.layers.length > 1 ? flushDepthFor(stack.flush.depth, stack.layers[stack.layers.length - 1].height) : undefined} workspace={workspace} disabled={disabled} onChange={(layers) => onLayer({ layers })} onInteractionActiveChange={onInteractionActiveChange} />
+          <TagFlushRows flush={stack.flush} layers={stack.layers} workspace={workspace} disabled={disabled} onChange={(flush) => onLayer({ flush })} onInteractionActiveChange={onInteractionActiveChange} />
           {/* The key ring hole as on the name tag (#391): its size and its side; the ear is on the bottom layer. */}
           <ToggleProperty
             label={t("nameTag.keyring")}
@@ -6967,6 +7179,7 @@ const SURFACE_SPACING_LABEL: Partial<Record<SurfaceTexturePattern, MessageKey>> 
 };
 const SURFACE_COVERAGE_LABEL: Partial<Record<SurfaceTexturePattern, MessageKey>> = {
   cells: "inspector.surfaceCoverageCells",
+  hammered: "inspector.surfaceCoverageHammered",
   knit: "inspector.surfaceCoverageKnit",
   rope: "inspector.surfaceCoverageRope",
   weave: "inspector.surfaceCoverageWeave",
@@ -6994,8 +7207,9 @@ function surfaceSettingsForPattern(current: SurfaceTextureSettings, pattern: Sur
 
 /**
  * A picture file as one's own image for the texture: drawn small (SURFACE_TEXTURE_OWN_IMAGE_SIZE) and turned grey. A
- * drawing (SVG) in two tones also keeps its outlines, found on a fine drawing of it, so an image pressed on once is cut
- * along them as a text is, not along the points of the small image (#1268).
+ * drawing in two tones, an SVG (#1268) or a bitmap such as a scanned line drawing or a logo (#1347), also keeps its
+ * outlines, found on a fine drawing of it, so an image pressed on once is cut along them as a text is, not along the
+ * points of the small image.
  */
 async function surfaceImageFromFile(file: File) {
   const url = URL.createObjectURL(file);
@@ -7014,16 +7228,17 @@ async function surfaceImageFromFile(file: File) {
       canvas.height = h;
       const context = canvas.getContext("2d", { willReadFrequently: true });
       if (!context) throw new Error("no canvas");
+      // A large photo or scan made small: averaged well, so a line's edge stays an even grey ramp the outline is found on.
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
       context.drawImage(picture, 0, 0, w, h);
       return { w, h, data: context.getImageData(0, 0, w, h).data };
     };
     const small = draw(SURFACE_TEXTURE_OWN_IMAGE_SIZE);
     const own = surfaceTextureOwnImage(small.data, small.w, small.h);
-    if (!drawing) return own;
-    const fine = draw(SURFACE_IMAGE_OUTLINE_RASTER);
-    const grey = drawingGrey(fine.data, fine.w, fine.h);
-    if (!inTwoTones(grey)) return own;
-    const outline = drawingOutlines(grey, fine.w, fine.h);
+    // A bitmap no larger than one's image is looked at as it is; a larger one, and an SVG, on the fine raster.
+    const fine = !drawing && Math.max(width, height) <= SURFACE_TEXTURE_OWN_IMAGE_SIZE ? small : draw(SURFACE_IMAGE_OUTLINE_RASTER);
+    const outline = ownImageOutline(fine.data, fine.w, fine.h, !drawing);
     return outline.length ? { ...own, outline } : own;
   } finally {
     URL.revokeObjectURL(url);
@@ -7536,10 +7751,10 @@ export function SurfaceTextureCard({
                       <p className="cylinder-wrap-hint">{t("inspector.surfaceTileHint")}</p>
                     </>
                   ) : null}
-                  {settings.pattern === "cells" || grain ? (
+                  {settings.pattern === "cells" || settings.pattern === "hammered" || grain ? (
                     <>
                       {range("surfaceSeed", t("inspector.surfaceSeed"), settings.seed, [1, 999], 1, (seed) => set({ seed }))}
-                      <p className="cylinder-wrap-hint">{t("inspector.surfaceSeedHint")}</p>
+                      <p className="cylinder-wrap-hint">{t(settings.pattern === "hammered" ? "inspector.surfaceHammeredHint" : "inspector.surfaceSeedHint")}</p>
                     </>
                   ) : null}
                 </>
@@ -8111,15 +8326,28 @@ function GridfinityCompartmentsCard({
     );
   });
 
-  if (compartments && gridfinityLabelFits(fields)) {
-    const rows = counts.z;
-    const columns = counts.x;
-    const row = Math.min(chosen.row, rows - 1);
-    const column = Math.min(chosen.column, columns - 1);
-    const cell = compartments.cells.find((entry) => entry.row === row && entry.column === column);
+  // One compartment chosen by its row and column, which can be split further (#1799) and take a label.
+  const rows = counts.z;
+  const columns = counts.x;
+  const row = Math.min(chosen.row, rows - 1);
+  const column = Math.min(chosen.column, columns - 1);
+  if (compartments) {
     const numbered = (count: number, key: MessageKey) => Array.from({ length: count }, (_entry, position) => ({ value: String(position), label: t(key, { number: position + 1 }) }));
     if (rows > 1) properties.push({ type: "select", id: "gridfinityCompartmentRow", label: t("prop.gridfinityCompartmentRow"), value: String(row), options: numbered(rows, "gridfinity.fromBack"), onChange: (value) => choose({ row: Number(value) }) });
     if (columns > 1) properties.push({ type: "select", id: "gridfinityCompartmentColumn", label: t("prop.gridfinityCompartmentColumn"), value: String(column), options: numbered(columns, "gridfinity.fromLeft"), onChange: (value) => choose({ column: Number(value) }) });
+    const parts = gridfinityCompartmentParts(fields, column, row);
+    ([["x", "gridfinityCompartmentSplitX", "prop.gridfinityCompartmentSplitX"], ["z", "gridfinityCompartmentSplitZ", "prop.gridfinityCompartmentSplitZ"]] as const).forEach(([axis, id, label]) => {
+      const max = gridfinityCompartmentPartsMax(fields, column, row, axis);
+      // A compartment too small to split is offered no row, unless it is split already that way.
+      if (max < 2 && parts[axis] < 2) return;
+      properties.push({ id, label: t(label), value: parts[axis], min: 1, max: Math.max(max, parts[axis]), step: 1, hint: axis === "z" ? t("gridfinity.compartmentSplitHint") : undefined, onChange: (value) => onUpdate(gridfinityCompartmentSplitPatch(fields, column, row, axis, clamp(Math.round(value), 1, Math.max(max, parts[axis])))) });
+    });
+  }
+
+  if (compartments && gridfinityLabelFits(fields)) {
+    // The part of a split compartment (#1799) a label on a side stands in: the compartment itself when it is not split.
+    const cellFor = (side: GridfinityCompartmentLabel["side"]) => gridfinityCompartmentLabelCell(fields, column, row, side);
+    const cell = cellFor("back");
     if (cell) {
       const labels = shape.gridfinityCompartmentLabels ?? [];
       const stored = labels.find((entry) => entry.column === column && entry.row === row);
@@ -8130,8 +8358,12 @@ function GridfinityCompartmentsCard({
         onUpdate({ gridfinityCompartmentLabels: all.length > 0 ? all : undefined });
       };
       // A side is offered when a label 4 mm wide still leaves 6 mm open, and the side already set always is.
-      const leftOut = stored ? gridfinityCompartmentLabelLeftOut(cell, stored.side) : null;
-      const sides = GRIDFINITY_LABEL_SIDE_OPTIONS.filter(({ value }) => value === stored?.side || gridfinityCompartmentLabelMaxWidth(fields, cell, value) >= MIN_GRIDFINITY_LABEL_WIDTH);
+      const storedCell = stored && cellFor(stored.side);
+      const leftOut = stored && storedCell ? gridfinityCompartmentLabelLeftOut(storedCell, stored.side) : null;
+      const sides = GRIDFINITY_LABEL_SIDE_OPTIONS.filter(({ value }) => {
+        const sideCell = cellFor(value);
+        return value === stored?.side || (sideCell !== null && gridfinityCompartmentLabelMaxWidth(fields, sideCell, value) >= MIN_GRIDFINITY_LABEL_WIDTH);
+      });
       properties.push({
         type: "select",
         id: "gridfinityCompartmentLabel",
@@ -8145,8 +8377,9 @@ function GridfinityCompartmentsCard({
         },
       });
       const built = gridfinityCompartmentLabel(fields, column, row);
-      if (stored && built) {
-        const maxWidth = gridfinityCompartmentLabelMaxWidth(fields, cell, built.side);
+      const builtCell = built && cellFor(built.side);
+      if (stored && built && builtCell) {
+        const maxWidth = gridfinityCompartmentLabelMaxWidth(fields, builtCell, built.side);
         const change = (changes: Partial<GridfinityCompartmentLabel>) => {
           const next: GridfinityCompartmentLabel = { ...stored, ...changes };
           // 100 % and the middle are what a label has unset, so they are written as unset, and so is no text.
@@ -8156,7 +8389,7 @@ function GridfinityCompartmentsCard({
           writeLabel(next);
         };
         // A shelf that comes out shorter than 4 mm is left out, which the row says rather than leave it unexplained.
-        const tooShort = built.length < 100 && (built.length / 100) * 2 * (built.side === "back" || built.side === "front" ? cell.hx : cell.hz) < MIN_GRIDFINITY_COMPARTMENT_LABEL_MM;
+        const tooShort = built.length < 100 && (built.length / 100) * 2 * (built.side === "back" || built.side === "front" ? builtCell.hx : builtCell.hz) < MIN_GRIDFINITY_COMPARTMENT_LABEL_MM;
         properties.push({ id: "gridfinityCompartmentLabelLength", label: t("prop.gridfinityCompartmentLabelLength"), value: built.length, min: MIN_GRIDFINITY_COMPARTMENT_LABEL_LENGTH, max: 100, step: 1, hint: t(tooShort ? "gridfinity.compartmentLabelTooShortHint" : "gridfinity.compartmentLabelLengthHint"), onChange: (value) => change({ length: clamp(value, MIN_GRIDFINITY_COMPARTMENT_LABEL_LENGTH, 100) }) });
         if (built.length < 100) {
           const options = GRIDFINITY_LABEL_ALIGN_OPTIONS[built.side === "back" || built.side === "front" ? "across" : "deep"];
@@ -8672,7 +8905,8 @@ function RangeProperty({
 }: RangePropertyConfig & { workspace: WorkplaneWorkspaceSettings; disabled?: boolean; onReset?: () => void; onDefault?: () => void; formula?: string; onFormula?: (text: string | null | undefined) => void; onInteractionActiveChange?: (active: boolean) => void }) {
   const parameters=useContext(ProjectVariablesContext);
   const driven=parameters.shape?.parameterBindings?.[id];
-  const canBind=(!id.startsWith("position")||parameters.allowPosition!==false)&&!!parameters.shape&&supportsParameters(parameters.shape)&&PARAMETER_FIELDS.includes(id as typeof PARAMETER_FIELDS[number])&&!!parameters.bind;
+  disabled=disabled||(id==="positionZ"&&Boolean(parameters.shape?.elevationRelationship))||(id==="positionX"&&Boolean(parameters.shape?.positionRelationships?.x))||(id==="positionY"&&Boolean(parameters.shape?.positionRelationships?.y));
+  const canBind=(!id.startsWith("position")||parameters.allowPosition!==false)&&!!parameters.shape&&supportsParameterField(parameters.shape,id)&&PARAMETER_FIELDS.includes(id as typeof PARAMETER_FIELDS[number])&&!!parameters.bind;
   const [expressionError,setExpressionError]=useState("");
   const holdInteraction = useInteractionHold(onInteractionActiveChange);
   const snapStepMm = useContext(SliderSnapContext);
@@ -8691,6 +8925,8 @@ function RangeProperty({
   const accuracy = workspace.accuracy;
   // A position can be typed beyond the slider, on both sides (#425).
   const freePosition = id === "positionX" || id === "positionY" || id === "positionZ" || id === "pivotX" || id === "pivotY" || id === "pivotZ";
+  // A turn goes round: 216 typed is the same turn as -144, and the wheel carries on past 180 (Discussion #1842).
+  const fullTurn = id === "rotateX" || id === "rotateY" || id === "rotateZ";
   const actualValue = freePosition && Number.isFinite(value) ? value : Math.max(min, Number.isFinite(value) ? value : min);
   const controlValue = isLength ? millimetersToDisplay(actualValue, workspace) : actualValue;
   const controlMin = isLength ? millimetersToDisplay(min, workspace) : min;
@@ -8737,7 +8973,7 @@ function RangeProperty({
     const nextModelValue = toModelValue(finiteNext);
     // The formula rides along with the value it set, in the same change; a plain number clears it.
     onFormula?.(Number.isFinite(next) ? formulaToRemember(draft) : null);
-    onChange(freePosition ? clamp(nextModelValue, -POSITION_TYPED_LIMIT, POSITION_TYPED_LIMIT) : allowsAboveSliderMax ? Math.max(min, nextModelValue) : clamp(nextModelValue, min, max));
+    onChange(fullTurn ? signedDegrees(nextModelValue) : freePosition ? clamp(nextModelValue, -POSITION_TYPED_LIMIT, POSITION_TYPED_LIMIT) : allowsAboveSliderMax ? Math.max(min, nextModelValue) : clamp(nextModelValue, min, max));
     onFormula?.(undefined);
     setEditing(false);
     holdInteraction(false);
@@ -8751,7 +8987,7 @@ function RangeProperty({
   // The wheel stops at the field's lower limit, also for the figure shown: it went on below it, into negative sizes, which the body
   // then kept at the limit and the field showed again as 0.01 only when it was left (#576, prmod3d). Returns the figure to show.
   const setSteppedValue = (turned: number, from: number) => {
-    const next = freePosition ? turned : Math.max(acrossGap(turned, from), controlMin);
+    const next = fullTurn ? signedDegrees(turned) : freePosition ? turned : Math.max(acrossGap(turned, from), controlMin);
     const nextModelValue = toModelValue(next);
     onChange(freePosition ? clamp(nextModelValue, -POSITION_TYPED_LIMIT, POSITION_TYPED_LIMIT) : allowsAboveSliderMax ? Math.max(min, nextModelValue) : clamp(nextModelValue, min, max));
     return formatShown(freePosition || allowsAboveSliderMax ? next : clamp(next, controlMin, controlMax));
@@ -8853,7 +9089,7 @@ function RangeProperty({
     setDraft(formatShown(next));
   };
   const row = (
-    <label className="range-property" style={{ "--slider-pos": `${position}%` } as CSSProperties}>
+    <label className="range-property" data-dependency-field={id} style={{ "--slider-pos": `${position}%` } as CSSProperties}>
       <span className="range-property-header">
         <span
           className={`range-property-name${scrubbable ? " scrubbable" : ""}`}
@@ -8913,7 +9149,10 @@ function RangeProperty({
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
-                event.currentTarget.blur();
+                // Leaving the field hands the value on. With Shift held, a size takes the other two along (#1872).
+                const input = event.currentTarget;
+                if (event.shiftKey) withProportionsKeptOnce(() => input.blur());
+                else input.blur();
               } else if (event.key === "Escape") {
                 setDraft(openingDraft());
                 setEditing(false);
@@ -9063,13 +9302,14 @@ function ColorProperty({ label, value, hint, disabled, onChange, onReset, onInte
   );
 }
 
-function ToggleProperty({ label, value, area, sub, disabled, onChange, onReset }: Omit<TogglePropertyConfig, "id" | "type"> & { disabled?: boolean; onReset?: () => void }) {
-  return (
+function ToggleProperty({ label, value, area, sub, hint, disabled, onChange, onReset }: Omit<TogglePropertyConfig, "id" | "type"> & { disabled?: boolean; onReset?: () => void }) {
+  const row = (
     <label className={`${area ? `check-property check-property-${area}` : "check-property"}${sub ? " check-property-sub" : ""}`}>
       <input type="checkbox" role="switch" checked={value} disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} />
       <span>{label}{onReset ? <PropertyResetButton onClick={onReset} /> : null}</span>
     </label>
   );
+  return hint ? <>{row}<p className="property-hint">{hint}</p></> : row;
 }
 
 /** Holt eine Auswahl aus der Merkmalsliste heraus, um sie woanders zu zeichnen. */
@@ -9498,7 +9738,7 @@ export function SelectionInspector({
 }
 
 export function projectParameterPatch(shape:WorkplaneShape,field:string,value:number,workspace:WorkplaneWorkspaceSettings):Partial<WorkplaneShape> {
- if(!supportsParameters(shape)||!Number.isFinite(value))throw Error(t("variables.unsupported"));
+ if(!supportsParameterField(shape,field)||!Number.isFinite(value))throw Error(t("variables.unsupported"));
  if(field.startsWith("position")){if(Math.abs(value)>POSITION_TYPED_LIMIT)throw Error(t("variables.positionRange"));return field==="positionX"?{x:value+plateOffsetOfShape(workspace,shape)}:field==="positionY"?{z:insideZ(value)}:{elevation:value-undersideOffset(shape)};}
  if(value<MIN_SHAPE_SIZE||value>1000000)throw Error(t("variables.dimensionRange"));
  let patch:Partial<WorkplaneShape>|undefined;

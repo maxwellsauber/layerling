@@ -38,3 +38,26 @@ it('keeps presets isolated by project and reports failed applies',async()=>{
   expect(host.querySelector('[role="alert"]')).toBeNull();
  }finally{act(()=>root.unmount());host.remove();localStorage.clear();}
 });
+
+it('gives later variables independent saved values in existing presets, including after reopening',async()=>{
+ localStorage.clear();
+ const first={id:'w',name:'wall',expression:'3',refs:{}};
+ const added={id:'h',name:'height',expression:'10',refs:{}};
+ const key='layerling.designVariants.later';
+ localStorage.setItem(key,JSON.stringify(['small','large'].map(id=>({id,name:id,variables:[first]}))));
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ const apply=vi.fn(async(_draft:typeof first[])=>{});
+ const render=(variables:typeof first[],reopen=false)=>act(()=>root.render(createElement(DesignVariants,{key:reopen?'reopen':'initial',projectId:'later',variables,onApply:apply,disabled:false})));
+ const choose=async(id:string)=>act(async()=>{const select=host.querySelector('select')!;select.value=id;select.dispatchEvent(new Event('change',{bubbles:true}));});
+ try{
+  render([first]);render([first,added]);
+  expect(JSON.parse(localStorage.getItem(key)!)[1].variables[1].expression).toBe('10');
+  await choose('small');
+  render([first,{...added,expression:'25'}]);
+  const update=[...host.querySelectorAll('button')].find(button=>button.textContent==='Update preset')!;
+  expect(update.disabled).toBe(false);act(()=>update.click());
+  await choose('large');expect(apply.mock.calls.at(-1)?.[0]).toEqual([first,added]);
+  render([first,added],true);await choose('small');
+  expect(apply.mock.calls.at(-1)?.[0]).toEqual([first,{...added,expression:'25'}]);
+ }finally{act(()=>root.unmount());host.remove();localStorage.clear();}
+});

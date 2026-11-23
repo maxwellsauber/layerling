@@ -16,3 +16,13 @@ it('reads the same axis written by the oriented inspector',()=>{
  const next=canonicalizeShape({...rotated,...projectParameterPatch(rotated,'width',75,workspace)});
  expect(projectParameterValue(next,'width',workspace)).toBe(75);
 });
+it('supports variable height and positions on constrained sketches without permitting outline resizing',async()=>{
+ const {supportsParameterField}=await import('@/lib/projectVariables');
+ const constrained={...box,sketchOperation:'extrude' as const,sketchProfile:{points:[{id:'a',x:0,z:0},{id:'b',x:40,z:0}],segments:[{id:'ab',startId:'a',endId:'b'}],constraints:[{id:'d',kind:'distance' as const,a:'a',b:'b',value:40}]}};
+ expect(supportsParameterField(constrained,'height')).toBe(true);
+ const next={...constrained,...projectParameterPatch(constrained,'height',100,workspace)};
+ expect(next.height).toBe(100);expect(next.sketchProfile).toBe(constrained.sketchProfile);
+ expect(supportsParameterField(constrained,'positionZ')).toBe(true);
+ expect(supportsParameterField(constrained,'width')).toBe(false);
+ expect(()=>projectParameterPatch(constrained,'width',100,workspace)).toThrow();
+});

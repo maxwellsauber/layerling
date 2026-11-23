@@ -23,5 +23,5 @@ export async function rebuildVariableSketchBody(
   let body = await build({...sketchPoseOf(source), parameterBindings: shape.parameterBindings}, profile);
   for (const entry of history) body = await replay(body, entry);
   // Deformations applied after the last baked modifier belong on top of the replayed body.
-  return withExtrudeDeformsKept(body, shape);
+  return {...withExtrudeDeformsKept(body, shape),elevationRelationship:shape.elevationRelationship,positionRelationships:shape.positionRelationships};
 }

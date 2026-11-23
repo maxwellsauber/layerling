@@ -26,7 +26,7 @@ describe("bundled sketch examples",()=>{
   expect(updateSketchOffsets(profile).ok).toBe(true);
   // Change an independent local copy and save it through the normal project serializer.
   copy.shapes[0].name="My edited example";
-  const saved=await exportLylProject({...copy,projectId:"local-copy",modifiedAt:Date.now(),history:[editorHistoryEntry(copy.shapes,[])],historyIndex:0});
+  const saved=await exportLylProject({...copy,projectId:"local-copy",modifiedAt:Date.now(),history:[editorHistoryEntry(copy.shapes,[], undefined, undefined, undefined, copy.history[copy.historyIndex]?.variables)],historyIndex:0});
   const reloaded=await importLylProject(saved);
   expect(reloaded.shapes[0].name).toBe("My edited example");
   expect(reloaded.shapes[0].sketchProfile).toEqual(profile);
